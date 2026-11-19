@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const Role = require('../models/Role');
 const env = require('../config/env');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
@@ -169,9 +170,21 @@ const getUsers = asyncHandler(async (req, res) => {
   if (pageRequested) cursor.skip((page - 1) * limit).limit(limit);
   const users = await cursor.lean();
 
-  if (!pageRequested) return res.json(users);
+  const activeRoles = await Role.find({ isActive: true }).select('name allowedRoutes').lean();
+  const roleRouteMap = new Map(activeRoles.map((r) => [String(r.name).toLowerCase(), r.allowedRoutes || []]));
+  const withEffectiveRoutes = (list) => list.map((u) => {
+    const roleRoutes = roleRouteMap.get(String(u.role || '').toLowerCase()) || [];
+    if (!roleRoutes.length) return u;
+    return {
+      ...u,
+      allowedRoutes: sanitizeRoutes([...new Set([...roleRoutes, ...(u.allowedRoutes || [])])]),
+    };
+  });
+
+  const effectiveUsers = withEffectiveRoutes(users);
+  if (!pageRequested) return res.json(effectiveUsers);
   const total = await User.countDocuments(query);
-  return res.json({ items: users, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+  return res.json({ items: effectiveUsers, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 const getUserProfile = asyncHandler(async (req, res) => {
@@ -257,12 +270,27 @@ const updateUser = asyncHandler(async (req, res) => {
     if (updates.role === 'super admin' && req.user.role !== 'super admin') {
       throw new AppError('Only a super admin can assign the super admin role', 403, 'FORBIDDEN');
     }
+    // When role changes and allowedRoutes is not explicitly provided,
+    // sync the new role's routes to the user, preserving any extra routes.
+    if (updates.role !== targetUser.role && updates.allowedRoutes === undefined) {
+      const newRoleDoc = await Role.findOne({ name: updates.role, isActive: true });
+      if (newRoleDoc) {
+        const oldRoleDoc = await Role.findOne({ name: targetUser.role });
+        const oldRoutes = new Set(oldRoleDoc?.allowedRoutes || []);
+        const userExtraRoutes = (targetUser.allowedRoutes || []).filter((r) => !oldRoutes.has(r));
+        updates.allowedRoutes = sanitizeRoutes([...new Set([...(newRoleDoc.allowedRoutes || []), ...userExtraRoutes])]);
+        updates.permissions = [...new Set([...(newRoleDoc.permissions || []), ...permissionsForRoutes(updates.allowedRoutes)])];
+      }
+    }
   }
   if (updates.baseSalary !== undefined) updates.baseSalary = validators.number(updates.baseSalary, 'baseSalary', { min: 0 });
   if (updates.allowedRoutes !== undefined) {
     validators.ensure(Array.isArray(updates.allowedRoutes), 'allowedRoutes must be an array', 'allowedRoutes');
     updates.allowedRoutes = sanitizeRoutes(updates.allowedRoutes);
-    updates.permissions = permissionsForRoutes(updates.allowedRoutes);
+    const userRole = updates.role || targetUser.role;
+    const roleDoc = await Role.findOne({ name: userRole, isActive: true });
+    const rolePermissions = roleDoc?.permissions || [];
+    updates.permissions = [...new Set([...rolePermissions, ...permissionsForRoutes(updates.allowedRoutes)])];
   }
   if (updates.firstName !== undefined || updates.lastName !== undefined) {
     const firstName = updates.firstName ?? targetUser.firstName ?? '';
@@ -290,6 +318,10 @@ const getUserById = asyncHandler(async (req, res) => {
     const sample = findSampleUser(targetId);
     if (sample) return res.json(sample);
     throw new AppError('Employee not found', 404, 'USER_NOT_FOUND');
+  }
+  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes').lean();
+  if (roleDoc?.allowedRoutes?.length) {
+    user.allowedRoutes = sanitizeRoutes([...new Set([...roleDoc.allowedRoutes, ...(user.allowedRoutes || [])])]);
   }
   res.json(user);
 });

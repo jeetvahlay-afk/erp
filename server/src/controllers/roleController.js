@@ -48,10 +48,18 @@ const updateRole = asyncHandler(async (req, res) => {
   validators.objectId(req.params.id, 'role id');
   const role = await Role.findById(req.params.id);
   if (!role) throw new AppError('Role not found', 404, 'ROLE_NOT_FOUND');
-  if (role.isSystem) throw new AppError('System roles cannot be edited', 400, 'SYSTEM_ROLE');
+  if (role.name === 'super admin' || role.name === 'admin') {
+    throw new AppError('Administrator system roles cannot be edited', 400, 'SYSTEM_ROLE');
+  }
 
   const previousName = role.name;
-  if (req.body.name) role.name = validators.requiredString(req.body.name, 'name', { max: 80 }).toLowerCase();
+  const previousRoutes = new Set(role.allowedRoutes || []);
+  if (req.body.name) {
+    if (role.isSystem && req.body.name.trim().toLowerCase() !== role.name) {
+      throw new AppError('System role names cannot be changed', 400, 'SYSTEM_ROLE');
+    }
+    role.name = validators.requiredString(req.body.name, 'name', { max: 80 }).toLowerCase();
+  }
   if (req.body.description !== undefined) role.description = validators.requiredString(req.body.description, 'description', { max: 500 });
   if (req.body.allowedRoutes !== undefined) {
     role.allowedRoutes = Array.isArray(req.body.allowedRoutes)
@@ -71,6 +79,20 @@ const updateRole = asyncHandler(async (req, res) => {
   if (role.name !== previousName) {
     await User.updateMany({ role: previousName, deletedAt: null }, { $set: { role: role.name } });
   }
+
+  // Synchronize allowed routes and permissions to employees assigned this role,
+  // preserving any user-specific extra routes assigned in Route Configuration.
+  if (req.body.allowedRoutes !== undefined) {
+    const usersWithRole = await User.find({ role: role.name, deletedAt: null });
+    for (const u of usersWithRole) {
+      const userExtraRoutes = (u.allowedRoutes || []).filter((r) => !previousRoutes.has(r));
+      const mergedRoutes = sanitizeRoutes([...new Set([...role.allowedRoutes, ...userExtraRoutes])]);
+      u.allowedRoutes = mergedRoutes;
+      u.permissions = [...new Set([...role.permissions, ...permissionsForRoutes(mergedRoutes)])];
+      await u.save();
+    }
+  }
+
   await writeAuditLog(req, 'role.updated', 'Role', role._id, { previousName, name: role.name });
   res.json(role);
 });

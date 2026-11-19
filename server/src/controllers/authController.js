@@ -94,9 +94,13 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new AppError('Only a super admin can create another super admin', 403, 'FORBIDDEN');
   }
 
-  const roleExists = await Role.exists({ name: payload.role, isActive: true });
-  if (!roleExists && !['user', 'admin', 'super admin'].includes(payload.role)) {
+  const roleDoc = await Role.findOne({ name: payload.role, isActive: true });
+  if (!roleDoc && !['user', 'admin', 'super admin'].includes(payload.role)) {
     throw new AppError('Selected role does not exist or is inactive', 400, 'INVALID_ROLE');
+  }
+  if (roleDoc?.allowedRoutes?.length) {
+    payload.allowedRoutes = sanitizeRoutes([...new Set([...roleDoc.allowedRoutes, ...payload.allowedRoutes])]);
+    payload.permissions = [...new Set([...(roleDoc.permissions || []), ...permissionsForRoutes(payload.allowedRoutes)])];
   }
 
   if (payload.address && !payload.currentAddress) payload.currentAddress = payload.address;
@@ -140,13 +144,25 @@ const loginUser = asyncHandler(async (req, res) => {
   await user.recordSuccessfulLogin();
   const remember = req.body.remember === true;
   establishBrowserSession(res, user, remember);
-  res.json(serializeAuthUser(user));
+  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes permissions').lean();
+  const authUser = serializeAuthUser(user);
+  if (roleDoc?.allowedRoutes?.length) {
+    authUser.allowedRoutes = sanitizeRoutes([...new Set([...roleDoc.allowedRoutes, ...(authUser.allowedRoutes || [])])]);
+    authUser.permissions = [...new Set([...(roleDoc.permissions || []), ...permissionsForRoutes(authUser.allowedRoutes)])];
+  }
+  res.json(authUser);
 });
 
 const getMe = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
-  res.json(user);
+  const userJson = user.toJSON();
+  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes permissions').lean();
+  if (roleDoc?.allowedRoutes?.length) {
+    userJson.allowedRoutes = sanitizeRoutes([...new Set([...roleDoc.allowedRoutes, ...(userJson.allowedRoutes || [])])]);
+    userJson.permissions = [...new Set([...(roleDoc.permissions || []), ...permissionsForRoutes(userJson.allowedRoutes)])];
+  }
+  res.json(userJson);
 });
 
 const verifyCredentials = asyncHandler(async (req, res) => {

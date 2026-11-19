@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
 import { feedback } from '../lib/feedback';
+import { useAuth } from '../context/AuthContext';
 import {
   EmptyState,
   ErrorState,
@@ -32,6 +33,7 @@ import { availableRoutes } from '../lib/routeAccess';
 const emptyRole = { name: '', description: '', allowedRoutes: [] };
 
 const ManageRoles = () => {
+  const { user: signedInUser, refreshUser } = useAuth();
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -72,6 +74,7 @@ const ManageRoles = () => {
       name: role.name,
       description: role.description || '',
       allowedRoutes: existingRoutes,
+      isSystem: role.isSystem,
     });
     setRouteSearch('');
     setModalOpen(true);
@@ -124,6 +127,9 @@ const ManageRoles = () => {
       };
       if (form._id) await api.put(`/api/roles/${form._id}`, payload);
       else await api.post('/api/roles', payload);
+      if (signedInUser?.role?.toLowerCase() === form.name.trim().toLowerCase()) {
+        await refreshUser().catch(() => {});
+      }
       feedback.success(form._id ? 'Role updated.' : 'Role created.');
       setModalOpen(false);
       load();
@@ -261,7 +267,7 @@ const ManageRoles = () => {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          disabled={role.isSystem}
+                          disabled={isSuperOrAdmin}
                           onClick={() => openEdit(role)}
                           className="w-8 h-8 rounded-lg text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center transition-colors cursor-pointer"
                           title="Edit Role & Routes"
@@ -333,9 +339,10 @@ const ManageRoles = () => {
               </label>
               <input
                 value={form.name}
+                disabled={form.isSystem}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="e.g. Payroll Analyst, Project Manager"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               />
             </div>
             <div>
