@@ -137,6 +137,7 @@ const adminDashboard = async () => {
     totalEmployees, activeEmployees, inactiveEmployees, newJoiners, departments,
     presentToday, lateToday, pendingLeaves, payrollRows, upcomingInterviews,
     distribution, weeklyAttendance, payrollTrend, pendingApprovalRows, recentCandidates,
+    recruitment,
   ] = await Promise.all([
     User.countDocuments({ deletedAt: null }),
     User.countDocuments({ deletedAt: null, isActive: true }),
@@ -153,6 +154,7 @@ const adminDashboard = async () => {
     getPayrollTrend(),
     Leave.find({ status: 'Pending' }).populate('user', 'name employeeId department profileImage').sort({ createdAt: 1 }).limit(5).lean(),
     Interview.find().sort({ entryDate: -1, createdAt: -1 }).limit(5).lean(),
+    getRecruitmentFunnel(),
   ]);
   const payrollNet = sum(payrollRows.map((row) => row.netSalary));
   const paidCount = payrollRows.filter((row) => row.paymentStatus === 'paid').length;
@@ -162,6 +164,7 @@ const adminDashboard = async () => {
     distribution, weeklyAttendance, payrollTrend,
     pendingApprovals: pendingApprovalRows,
     recentCandidates,
+    recruitment,
   };
 };
 

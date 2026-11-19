@@ -24,106 +24,6 @@ import { downloadCsv } from '../lib/export';
 import { feedback } from '../lib/feedback';
 import { LoadingState, ErrorState } from '../components/ui/EnterpriseUI';
 
-// Realistic sample employees matching the reference design in Employee Dairectories.png
-const DEFAULT_DIRECTORY = [
-  {
-    _id: '507f1f77bcf86cd799439001',
-    employeeId: 'EMP001',
-    name: 'John Doe',
-    email: 'john.doe@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-    department: 'IT',
-    designation: 'Software Developer',
-    joiningDate: 'Jan 15, 2024',
-    status: 'Active',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439002',
-    employeeId: 'EMP002',
-    name: 'Emily Carter',
-    email: 'emily.carter@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    department: 'HR',
-    designation: 'HR Executive',
-    joiningDate: 'Feb 02, 2024',
-    status: 'Active',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439003',
-    employeeId: 'EMP003',
-    name: 'Michael Brown',
-    email: 'michael.brown@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    department: 'Sales',
-    designation: 'Sales Manager',
-    joiningDate: 'Mar 10, 2024',
-    status: 'Active',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439004',
-    employeeId: 'EMP004',
-    name: 'Sophia Wilson',
-    email: 'sophia.wilson@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    department: 'Marketing',
-    designation: 'Marketing Lead',
-    joiningDate: 'Mar 18, 2024',
-    status: 'Active',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439005',
-    employeeId: 'EMP005',
-    name: 'David Miller',
-    email: 'david.miller@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-    department: 'Operations',
-    designation: 'Operations Executive',
-    joiningDate: 'Apr 01, 2024',
-    status: 'On Leave',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439006',
-    employeeId: 'EMP006',
-    name: 'Ava Thompson',
-    email: 'ava.thompson@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150',
-    department: 'Finance',
-    designation: 'Finance Executive',
-    joiningDate: 'Apr 12, 2024',
-    status: 'Active',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439007',
-    employeeId: 'EMP007',
-    name: 'William Scott',
-    email: 'william.scott@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150',
-    department: 'IT',
-    designation: 'DevOps Engineer',
-    joiningDate: 'Apr 20, 2024',
-    status: 'Active',
-    isActive: true,
-  },
-  {
-    _id: '507f1f77bcf86cd799439008',
-    employeeId: 'EMP008',
-    name: 'Olivia Harris',
-    email: 'olivia.harris@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150',
-    department: 'Support',
-    designation: 'Support Executive',
-    joiningDate: 'May 05, 2024',
-    status: 'Inactive',
-    isActive: false,
-  },
-];
-
 const ManageEmployee = () => {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
@@ -155,7 +55,7 @@ const ManageEmployee = () => {
           ? u.profileImage.startsWith('http')
             ? u.profileImage
             : `/api/users/${u._id}/avatar`
-          : DEFAULT_DIRECTORY[i % DEFAULT_DIRECTORY.length].avatar,
+          : '',
         department: u.department || 'General',
         designation: u.designation || u.role || 'Staff',
         joiningDate: u.joiningDate
@@ -164,20 +64,16 @@ const ManageEmployee = () => {
               day: '2-digit',
               year: 'numeric',
             })
-          : 'Jan 15, 2024',
+          : '—',
         status: u.isActive !== false ? 'Active' : 'Inactive',
         isActive: u.isActive !== false,
       }));
 
-      // Combine real database accounts with directory samples so every record is valid
-      const realIds = new Set(mappedApiUsers.map((u) => u._id));
-      const remainingSamples = DEFAULT_DIRECTORY.filter((s) => !realIds.has(s._id));
-      setEmployees([...mappedApiUsers, ...remainingSamples]);
+      setEmployees(mappedApiUsers);
       setStats(dashboardResponse.data?.kpis || {});
     } catch (requestError) {
-      // Fallback gracefully to reference mock records
-      setEmployees(DEFAULT_DIRECTORY);
-      setError(getApiError(requestError, ''));
+      setEmployees([]);
+      setError(getApiError(requestError, 'Unable to load employees'));
     } finally {
       setLoading(false);
     }
@@ -194,6 +90,14 @@ const ManageEmployee = () => {
     setStatusFilter('All Status');
     setPage(1);
   };
+
+  const uniqueDepartments = useMemo(() => {
+    return [...new Set(employees.map((e) => e.department).filter(Boolean))].sort();
+  }, [employees]);
+
+  const uniqueDesignations = useMemo(() => {
+    return [...new Set(employees.map((e) => e.designation).filter(Boolean))].sort();
+  }, [employees]);
 
   const filteredEmployees = useMemo(() => {
     return employees.filter((emp) => {
@@ -406,13 +310,9 @@ const ManageEmployee = () => {
               className="appearance-none bg-white border border-slate-200/80 rounded-xl px-3.5 py-2 pr-8 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
             >
               <option>All Departments</option>
-              <option>IT</option>
-              <option>HR</option>
-              <option>Sales</option>
-              <option>Marketing</option>
-              <option>Operations</option>
-              <option>Finance</option>
-              <option>Support</option>
+              {uniqueDepartments.map((dept) => (
+                <option key={dept}>{dept}</option>
+              ))}
             </select>
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
@@ -425,14 +325,9 @@ const ManageEmployee = () => {
               className="appearance-none bg-white border border-slate-200/80 rounded-xl px-3.5 py-2 pr-8 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
             >
               <option>All Designations</option>
-              <option>Software Developer</option>
-              <option>HR Executive</option>
-              <option>Sales Manager</option>
-              <option>Marketing Lead</option>
-              <option>Operations Executive</option>
-              <option>Finance Executive</option>
-              <option>DevOps Engineer</option>
-              <option>Support Executive</option>
+              {uniqueDesignations.map((desig) => (
+                <option key={desig}>{desig}</option>
+              ))}
             </select>
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
@@ -518,11 +413,17 @@ const ManageEmployee = () => {
                     {/* Employee Avatar + Name + Email */}
                     <td className="py-2.5 px-2.5">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={emp.avatar}
-                          alt={emp.name}
-                          className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 shrink-0"
-                        />
+                        {emp.avatar ? (
+                          <img
+                            src={emp.avatar}
+                            alt={emp.name}
+                            className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center ring-1 ring-slate-200 shrink-0">
+                            {emp.name?.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
                         <div className="min-w-0">
                           <button
                             type="button"

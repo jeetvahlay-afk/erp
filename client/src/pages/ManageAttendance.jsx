@@ -25,88 +25,6 @@ import { downloadCsv } from '../lib/export';
 import { feedback } from '../lib/feedback';
 import { LoadingState, ErrorState, Modal, ToolbarButton } from '../components/ui/EnterpriseUI';
 
-// Realistic sample records matching TeamHub ERP Attendance Dashboard.png
-const DEFAULT_ATTENDANCE = [
-  {
-    _id: 'att-001',
-    employeeId: 'EMP001',
-    name: 'John Doe',
-    email: 'john.doe@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-    department: 'IT',
-    shift: 'General',
-    checkIn: '09:02 AM',
-    checkOut: '06:07 PM',
-    workHours: '9h 05m',
-    status: 'Present',
-  },
-  {
-    _id: 'att-002',
-    employeeId: 'EMP002',
-    name: 'Emily Carter',
-    email: 'emily.carter@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-    department: 'HR',
-    shift: 'General',
-    checkIn: '09:15 AM',
-    checkOut: '06:00 PM',
-    workHours: '8h 45m',
-    status: 'Late',
-  },
-  {
-    _id: 'att-003',
-    employeeId: 'EMP003',
-    name: 'Michael Brown',
-    email: 'michael.brown@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    department: 'Sales',
-    shift: 'General',
-    checkIn: '09:00 AM',
-    checkOut: '06:10 PM',
-    workHours: '9h 10m',
-    status: 'Present',
-  },
-  {
-    _id: 'att-004',
-    employeeId: 'EMP004',
-    name: 'Sophia Wilson',
-    email: 'sophia.wilson@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    department: 'Marketing',
-    shift: 'General',
-    checkIn: '09:05 AM',
-    checkOut: '06:01 PM',
-    workHours: '8h 56m',
-    status: 'Present',
-  },
-  {
-    _id: 'att-005',
-    employeeId: 'EMP005',
-    name: 'David Miller',
-    email: 'david.miller@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-    department: 'Operations',
-    shift: 'Evening',
-    checkIn: '02:00 PM',
-    checkOut: '11:00 PM',
-    workHours: '9h 00m',
-    status: 'Present',
-  },
-  {
-    _id: 'att-006',
-    employeeId: 'EMP006',
-    name: 'Ava Thompson',
-    email: 'ava.thompson@teamhub.com',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150',
-    department: 'Finance',
-    shift: 'General',
-    checkIn: '—',
-    checkOut: '—',
-    workHours: '—',
-    status: 'Absent',
-  },
-];
-
 const toLocalInput = (value) =>
   value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
 
@@ -137,35 +55,31 @@ const ManageAttendance = () => {
         api.get('/api/dashboard/attendance'),
       ]);
       const apiRecords = asArray(recordResponse.data);
-      if (apiRecords.length > 1) {
-        setRecords(
-          apiRecords.map((r, i) => {
-            const checkInDate = r.loginTime ? new Date(r.loginTime) : null;
-            const checkOutDate = r.logoutTime ? new Date(r.logoutTime) : null;
-            return {
-              _id: r._id,
-              userId: r.user?._id,
-              employeeId: r.user?.employeeId || `EMP${String(i + 1).padStart(3, '0')}`,
-              name: r.user?.name || 'Staff Member',
-              email: r.user?.email || 'staff@teamhub.com',
-              avatar: r.user?.avatar || DEFAULT_ATTENDANCE[i % DEFAULT_ATTENDANCE.length].avatar,
-              department: r.user?.department || 'General',
-              shift: r.shift || (i % 5 === 4 ? 'Evening' : 'General'),
-              checkIn: checkInDate ? checkInDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
-              checkOut: checkOutDate ? checkOutDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
-              workHours: checkInDate && checkOutDate ? `${Math.max(1, Math.round((checkOutDate - checkInDate) / 3600000))}h 00m` : (r.status === 'Absent' ? '—' : '8h 30m'),
-              status: r.status || 'Present',
-              rawRecord: r,
-            };
-          })
-        );
-      } else {
-        setRecords(DEFAULT_ATTENDANCE);
-      }
+      setRecords(
+        apiRecords.map((r, i) => {
+          const checkInDate = r.loginTime ? new Date(r.loginTime) : null;
+          const checkOutDate = r.logoutTime ? new Date(r.logoutTime) : null;
+          return {
+            _id: r._id,
+            userId: r.user?._id,
+            employeeId: r.user?.employeeId || `EMP${String(i + 1).padStart(3, '0')}`,
+            name: r.user?.name || 'Staff Member',
+            email: r.user?.email || 'staff@teamhub.com',
+            avatar: r.user?.avatar || (r.user?.profileImage ? (r.user.profileImage.startsWith('http') ? r.user.profileImage : `/api/users/${r.user._id}/avatar`) : ''),
+            department: r.user?.department || 'General',
+            shift: r.shift || 'General',
+            checkIn: checkInDate ? checkInDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
+            checkOut: checkOutDate ? checkOutDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
+            workHours: checkInDate && checkOutDate ? `${Math.max(1, Math.round((checkOutDate - checkInDate) / 3600000))}h 00m` : (r.status === 'Absent' ? '—' : '—'),
+            status: r.status || 'Present',
+            rawRecord: r,
+          };
+        })
+      );
       setKpis(dashboardResponse.data?.kpis || {});
     } catch (requestError) {
-      setRecords(DEFAULT_ATTENDANCE);
-      setError(getApiError(requestError, ''));
+      setRecords([]);
+      setError(getApiError(requestError, 'Unable to load attendance records'));
     } finally {
       setLoading(false);
     }
@@ -183,6 +97,14 @@ const ManageAttendance = () => {
     setStatusFilter('All Status');
     setPage(1);
   };
+
+  const uniqueDepartments = useMemo(() => {
+    return [...new Set(records.map((r) => r.department).filter(Boolean))].sort();
+  }, [records]);
+
+  const uniqueEmployeeNames = useMemo(() => {
+    return [...new Set(records.map((r) => r.name).filter(Boolean))].sort();
+  }, [records]);
 
   const filteredRecords = useMemo(() => {
     return records.filter((rec) => {
@@ -456,12 +378,9 @@ const ManageAttendance = () => {
             className="appearance-none bg-white border border-slate-200/80 rounded-xl pl-8 pr-8 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
           >
             <option>All Departments</option>
-            <option>IT</option>
-            <option>HR</option>
-            <option>Sales</option>
-            <option>Marketing</option>
-            <option>Operations</option>
-            <option>Finance</option>
+            {uniqueDepartments.map((dept) => (
+              <option key={dept}>{dept}</option>
+            ))}
           </select>
           <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
@@ -477,12 +396,9 @@ const ManageAttendance = () => {
             className="appearance-none bg-white border border-slate-200/80 rounded-xl pl-8 pr-8 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
           >
             <option>All Employees</option>
-            <option>John Doe</option>
-            <option>Emily Carter</option>
-            <option>Michael Brown</option>
-            <option>Sophia Wilson</option>
-            <option>David Miller</option>
-            <option>Ava Thompson</option>
+            {uniqueEmployeeNames.map((name) => (
+              <option key={name}>{name}</option>
+            ))}
           </select>
           <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
@@ -602,11 +518,17 @@ const ManageAttendance = () => {
                     {/* Employee Avatar + Name + Email */}
                     <td className="py-2.5 px-2.5">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={rec.avatar}
-                          alt={rec.name}
-                          className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 shrink-0"
-                        />
+                        {rec.avatar ? (
+                          <img
+                            src={rec.avatar}
+                            alt={rec.name}
+                            className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center ring-1 ring-slate-200 shrink-0">
+                            {rec.name?.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
                         <div className="min-w-0">
                           <button
                             type="button"

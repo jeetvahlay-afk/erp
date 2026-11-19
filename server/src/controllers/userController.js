@@ -10,7 +10,6 @@ const pick = require('../utils/pick');
 const validators = require('../validation/validators');
 const { permissionsForRoutes, sanitizeRoutes } = require('../utils/routePermissions');
 const { writeAuditLog } = require('../services/auditService');
-const { findSampleUser } = require('../utils/sampleUsers');
 
 const ADMIN_UPDATABLE_FIELDS = [
   'email', 'username', 'emergencyName', 'emergencyPhone', 'currentAddress', 'permanentAddress',
@@ -82,8 +81,6 @@ const getUserAvatar = asyncHandler(async (req, res) => {
     user = await User.findOne({ employeeId: targetId, deletedAt: null }).select('profileImage').lean();
   }
   if (!user?.profileImage) {
-    const sample = findSampleUser(targetId);
-    if (sample?.avatar) return res.redirect(sample.avatar);
     throw new AppError('Profile image not found', 404, 'AVATAR_NOT_FOUND');
   }
   const filePath = path.resolve(__dirname, '../../uploads/avatars', path.basename(user.profileImage));
@@ -315,8 +312,6 @@ const getUserById = asyncHandler(async (req, res) => {
     user = await User.findOne({ employeeId: targetId, deletedAt: null }).lean();
   }
   if (!user) {
-    const sample = findSampleUser(targetId);
-    if (sample) return res.json(sample);
     throw new AppError('Employee not found', 404, 'USER_NOT_FOUND');
   }
   const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes').lean();

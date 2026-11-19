@@ -28,16 +28,16 @@ const HRDashboard = () => {
   const { data, loading, error, refresh } = useLiveData('/api/dashboard/hr');
 
   const attendanceDays = useMemo(() => {
-    return [
-      { day: 'Mon', present: 214, late: 24, absent: 18 },
-      { day: 'Tue', present: 220, late: 28, absent: 15 },
-      { day: 'Wed', present: 210, late: 22, absent: 20 },
-      { day: 'Thu', present: 208, late: 25, absent: 19 },
-      { day: 'Fri', present: 190, late: 20, absent: 14 },
-      { day: 'Sat', present: 195, late: 18, absent: 16 },
-      { day: 'Sun', present: 218, late: 26, absent: 22 },
-    ];
-  }, []);
+    if (Array.isArray(data?.weeklyAttendance) && data.weeklyAttendance.length > 0) {
+      return data.weeklyAttendance.map((item) => ({
+        day: item.label || item.date,
+        present: item.present || 0,
+        late: item.late || 0,
+        absent: item.absent || 0,
+      }));
+    }
+    return [];
+  }, [data?.weeklyAttendance]);
 
   if (loading) return <LoadingState label="Loading HR dashboard…" />;
   if (error) return <ErrorState message={error} retry={refresh} />;

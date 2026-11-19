@@ -18,6 +18,8 @@ import {
   X,
 } from 'lucide-react';
 import useLiveData from '../hooks/useLiveData';
+import api, { getApiError } from '../lib/api';
+import { feedback } from '../lib/feedback';
 import { LoadingState, ErrorState } from '../components/ui/EnterpriseUI';
 
 const AdminDashboard = () => {
@@ -26,86 +28,99 @@ const AdminDashboard = () => {
   const [attendancePeriod, setAttendancePeriod] = useState('week');
   const [payrollPeriod, setPayrollPeriod] = useState('6months');
 
-  // Realistic fallback metrics matching the reference design if live database is empty
   const kpis = data?.kpis || {};
-  const totalStaff = kpis.totalEmployees > 1 ? kpis.totalEmployees : 256;
-  const activeStaff = kpis.activeEmployees > 1 ? kpis.activeEmployees : 238;
-  const presentToday = kpis.presentToday > 1 ? kpis.presentToday : 214;
-  const payrollAmount = kpis.payrollNet > 0 ? kpis.payrollNet : 482750;
+  const totalStaff = kpis.totalEmployees || 0;
+  const activeStaff = kpis.activeEmployees || 0;
+  const presentToday = kpis.presentToday || 0;
+  const payrollAmount = kpis.payrollNet || 0;
+  const rec = data?.recruitment || {};
 
-  // 7-day attendance distribution
+  // 7-day attendance distribution from real data
   const attendanceDays = useMemo(() => {
-    return [
-      { day: 'Mon', present: 214, late: 24, absent: 18 },
-      { day: 'Tue', present: 220, late: 28, absent: 15 },
-      { day: 'Wed', present: 210, late: 22, absent: 20 },
-      { day: 'Thu', present: 208, late: 25, absent: 19 },
-      { day: 'Fri', present: 190, late: 20, absent: 14 },
-      { day: 'Sat', present: 195, late: 18, absent: 16 },
-      { day: 'Sun', present: 218, late: 26, absent: 22 },
-    ];
-  }, []);
+    if (Array.isArray(data?.weeklyAttendance) && data.weeklyAttendance.length > 0) {
+      return data.weeklyAttendance.map((item) => ({
+        day: item.label || item.date,
+        present: item.present || 0,
+        late: item.late || 0,
+        absent: item.absent || 0,
+      }));
+    }
+    return [];
+  }, [data?.weeklyAttendance]);
 
-  // Department Breakdown
+  // Department Breakdown from real distribution
   const departments = useMemo(() => {
-    return [
-      { name: 'Engineering', count: 68, percentage: 26.6 },
-      { name: 'Sales', count: 46, percentage: 18.0 },
-      { name: 'HR', count: 24, percentage: 9.4 },
-      { name: 'Finance', count: 18, percentage: 7.0 },
-      { name: 'Operations', count: 16, percentage: 6.3 },
-      { name: 'Marketing', count: 14, percentage: 5.5 },
-      { name: 'Support', count: 70, percentage: 27.3 },
-    ];
-  }, []);
+    if (Array.isArray(data?.distribution) && data.distribution.length > 0) {
+      return data.distribution.map((item) => {
+        const count = Number(item.value || 0);
+        const percentage = totalStaff > 0 ? Number(((count / totalStaff) * 100).toFixed(1)) : 0;
+        return {
+          name: item.label || 'Unassigned',
+          count,
+          percentage,
+        };
+      });
+    }
+    return [];
+  }, [data?.distribution, totalStaff]);
 
-  // Pending Leave Approvals
+  // Pending Leave Approvals from real data
   const pendingLeaves = useMemo(() => {
-    return [
-      {
-        id: '1',
-        name: 'Emily Carter',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        leaveType: 'Annual Leave',
-        from: 'Jan 20, 2026',
-        to: 'Jan 22, 2026',
-        days: 3,
-      },
-      {
-        id: '2',
-        name: 'Michael Brown',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-        leaveType: 'Sick Leave',
-        from: 'Jan 21, 2026',
-        to: 'Jan 21, 2026',
-        days: 1,
-      },
-      {
-        id: '3',
-        name: 'Sophia Wilson',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-        leaveType: 'Casual Leave',
-        from: 'Jan 23, 2026',
-        to: 'Jan 23, 2026',
-        days: 1,
-      },
-    ];
-  }, []);
+    if (Array.isArray(data?.pendingApprovals) && data.pendingApprovals.length > 0) {
+      return data.pendingApprovals.map((leave) => {
+        const start = leave.startDate ? new Date(leave.startDate) : null;
+        const end = leave.endDate ? new Date(leave.endDate) : null;
+        const days = start && end ? Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1) : 1;
+        const avatar = leave.user?.profileImage
+          ? (leave.user.profileImage.startsWith('http') ? leave.user.profileImage : `/api/users/${leave.user._id}/avatar`)
+          : '';
+        return {
+          id: leave._id,
+          name: leave.user?.name || 'Staff Member',
+          avatar,
+          leaveType: leave.leaveType || 'Leave',
+          from: start ? start.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—',
+          to: end ? end.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—',
+          days,
+        };
+      });
+    }
+    return [];
+  }, [data?.pendingApprovals]);
 
-  // Payroll Trend Line Points (Aug to Jan)
-  // Max scale: 550k, Min scale: 400k. Delta: 150k
-  // Coordinates in SVG: viewBox="0 0 500 170"
-  const payrollPoints = [
-    { month: 'Aug', value: '₹425K', x: 25, y: 140 },
-    { month: 'Sep', value: '₹445K', x: 110, y: 118 },
-    { month: 'Oct', value: '₹465K', x: 195, y: 95 },
-    { month: 'Nov', value: '₹480K', x: 280, y: 80 },
-    { month: 'Dec', value: '₹495K', x: 365, y: 62 },
-    { month: 'Jan', value: '₹515K', x: 450, y: 38 },
-  ];
+  const handleLeaveDecision = async (leaveId, status) => {
+    try {
+      await api.put(`/api/leaves/${leaveId}/status`, { status });
+      feedback.success(`Leave request ${status.toLowerCase()}`);
+      refresh();
+    } catch (requestError) {
+      feedback.error(getApiError(requestError, 'Unable to update leave status'));
+    }
+  };
 
-  const svgPolyline = payrollPoints.map((p) => `${p.x},${p.y}`).join(' ');
-  const svgArea = `25,160 ${svgPolyline} 450,160`;
+  // Payroll Trend Line Points calculated from real trend data
+  const payrollPoints = useMemo(() => {
+    const trend = Array.isArray(data?.payrollTrend) ? data.payrollTrend : [];
+    if (!trend.length) return [];
+    const maxNet = Math.max(...trend.map((t) => Number(t.net || 0)), 1);
+    const minNet = 0;
+    const range = maxNet - minNet || 1;
+    return trend.map((t, index) => {
+      const net = Number(t.net || 0);
+      const x = trend.length > 1 ? 25 + Math.round((index / (trend.length - 1)) * 425) : 225;
+      const y = Math.round(140 - ((net - minNet) / range) * 102);
+      const value = net >= 100000 ? `₹${(net / 100000).toFixed(1)}L` : net >= 1000 ? `₹${(net / 1000).toFixed(0)}K` : `₹${net}`;
+      return {
+        month: t.label || t.key,
+        value,
+        x,
+        y,
+      };
+    });
+  }, [data?.payrollTrend]);
+
+  const svgPolyline = payrollPoints.length ? payrollPoints.map((p) => `${p.x},${p.y}`).join(' ') : '25,140 450,140';
+  const svgArea = payrollPoints.length ? `25,160 ${svgPolyline} 450,160` : '25,160 450,160';
 
   if (loading && !data) return <LoadingState label="Loading admin dashboard…" />;
   if (error && !data) return <ErrorState message={error} retry={refresh} />;
@@ -362,7 +377,7 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">Absent</span>
-                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">18</strong>
+                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">{kpis.absentToday ?? 0}</strong>
                   </div>
                 </div>
 
@@ -385,7 +400,9 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">Attendance Rate</span>
-                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">86.6%</strong>
+                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">
+                      {activeStaff > 0 ? Math.round((presentToday / activeStaff) * 100) : 0}%
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -399,28 +416,32 @@ const AdminDashboard = () => {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Department Breakdown</h2>
               <span className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs">
-                Total: 256
+                Total: {totalStaff}
               </span>
             </div>
 
             <div className="space-y-2.5 pt-1">
-              {departments.map((dept) => (
-                <div key={dept.name} className="flex items-center justify-between text-xs">
-                  <span className="w-20 font-medium text-slate-700 dark:text-slate-300 truncate">{dept.name}</span>
-                  <div className="flex-1 mx-2.5 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                    <div
-                      style={{
-                        width: `${dept.percentage}%`,
-                        backgroundColor: 'var(--erp-primary, #2563eb)',
-                      }}
-                      className="h-full rounded-full transition-all duration-500"
-                    />
+              {departments.length ? (
+                departments.map((dept) => (
+                  <div key={dept.name} className="flex items-center justify-between text-xs">
+                    <span className="w-20 font-medium text-slate-700 dark:text-slate-300 truncate">{dept.name}</span>
+                    <div className="flex-1 mx-2.5 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        style={{
+                          width: `${dept.percentage}%`,
+                          backgroundColor: 'var(--erp-primary, #2563eb)',
+                        }}
+                        className="h-full rounded-full transition-all duration-500"
+                      />
+                    </div>
+                    <span className="w-16 text-right font-bold text-slate-800 dark:text-slate-200">
+                      {dept.count} <span className="font-medium text-slate-400">({dept.percentage}%)</span>
+                    </span>
                   </div>
-                  <span className="w-16 text-right font-bold text-slate-800 dark:text-slate-200">
-                    {dept.count} <span className="font-medium text-slate-400">({dept.percentage}%)</span>
-                  </span>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-center py-6 text-xs text-slate-400">No department data available</p>
+              )}
             </div>
           </div>
         </div>
@@ -529,44 +550,60 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {pendingLeaves.map((leave) => (
-                    <tr key={leave.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="py-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <img
-                            src={leave.avatar}
-                            alt=""
-                            className="w-6 h-6 rounded-full object-cover shrink-0"
-                          />
-                          <span className="font-semibold text-slate-900 dark:text-white text-xs truncate">
-                            {leave.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-2 text-slate-600 dark:text-slate-300">{leave.leaveType}</td>
-                      <td className="py-2 text-slate-500 whitespace-nowrap">{leave.from}</td>
-                      <td className="py-2 text-slate-500 whitespace-nowrap">{leave.to}</td>
-                      <td className="py-2 font-bold text-slate-800 dark:text-slate-200 text-center">{leave.days}</td>
-                      <td className="py-2">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            className="w-5.5 h-5.5 rounded-md bg-[#ecfdf5] hover:bg-emerald-100 text-[#10b981] flex items-center justify-center transition-colors cursor-pointer"
-                            title="Approve"
-                          >
-                            <Check size={12} strokeWidth={2.5} />
-                          </button>
-                          <button
-                            type="button"
-                            className="w-5.5 h-5.5 rounded-md bg-[#fef2f2] hover:bg-rose-100 text-[#ef4444] flex items-center justify-center transition-colors cursor-pointer"
-                            title="Reject"
-                          >
-                            <X size={12} strokeWidth={2.5} />
-                          </button>
-                        </div>
+                  {pendingLeaves.length ? (
+                    pendingLeaves.map((leave) => (
+                      <tr key={leave.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="py-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {leave.avatar ? (
+                              <img
+                                src={leave.avatar}
+                                alt=""
+                                className="w-6 h-6 rounded-full object-cover shrink-0"
+                              />
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold shrink-0">
+                                {leave.name?.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
+                            <span className="font-semibold text-slate-900 dark:text-white text-xs truncate">
+                              {leave.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 text-slate-600 dark:text-slate-300">{leave.leaveType}</td>
+                        <td className="py-2 text-slate-500 whitespace-nowrap">{leave.from}</td>
+                        <td className="py-2 text-slate-500 whitespace-nowrap">{leave.to}</td>
+                        <td className="py-2 font-bold text-slate-800 dark:text-slate-200 text-center">{leave.days}</td>
+                        <td className="py-2">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleLeaveDecision(leave.id, 'Approved')}
+                              className="w-5.5 h-5.5 rounded-md bg-[#ecfdf5] hover:bg-emerald-100 text-[#10b981] flex items-center justify-center transition-colors cursor-pointer"
+                              title="Approve"
+                            >
+                              <Check size={12} strokeWidth={2.5} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleLeaveDecision(leave.id, 'Rejected')}
+                              className="w-5.5 h-5.5 rounded-md bg-[#fef2f2] hover:bg-rose-100 text-[#ef4444] flex items-center justify-center transition-colors cursor-pointer"
+                              title="Reject"
+                            >
+                              <X size={12} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="py-6 text-center text-slate-400 text-xs">
+                        No pending leave approvals
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -598,7 +635,7 @@ const AdminDashboard = () => {
                 >
                   <User size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">48</strong>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.applied || 0}</strong>
                 <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Applied</span>
               </div>
 
@@ -607,7 +644,7 @@ const AdminDashboard = () => {
                 <div className="w-6 h-6 rounded-md bg-amber-100/60 text-[#f59e0b] flex items-center justify-center mb-1">
                   <UserCheck size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">24</strong>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.shortlisted || 0}</strong>
                 <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Shortlisted</span>
               </div>
 
@@ -616,7 +653,7 @@ const AdminDashboard = () => {
                 <div className="w-6 h-6 rounded-md bg-purple-100/60 text-[#7c3aed] flex items-center justify-center mb-1">
                   <Briefcase size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">12</strong>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.interviewed || 0}</strong>
                 <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Interview</span>
               </div>
 
@@ -625,7 +662,7 @@ const AdminDashboard = () => {
                 <div className="w-6 h-6 rounded-md bg-emerald-100/60 text-[#10b981] flex items-center justify-center mb-1">
                   <UserPlus size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">6</strong>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.hired || 0}</strong>
                 <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Hired</span>
               </div>
             </div>
