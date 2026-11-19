@@ -1,0 +1,12 @@
+const express = require('express');
+const { listMail, saveMail, getMailConfig, updateMyMailConfig, updateEmployeeMailConfig, listEmployeeMailConfigs, testEmployeeMailConfig, updateMailAction } = require('../controllers/employeeMailController');
+const { protect, authorizeAccess } = require('../middleware/authMiddleware');
+const router = express.Router(); router.use(protect);
+router.get('/config', getMailConfig);
+router.put('/config', updateMyMailConfig);
+router.get('/config/employees', authorizeAccess({ roles: ['super admin', 'admin'], permissions: ['employees.write', 'settings.write'] }), listEmployeeMailConfigs);
+router.put('/config/:userId', authorizeAccess({ roles: ['super admin', 'admin'], permissions: ['employees.write', 'settings.write'] }), updateEmployeeMailConfig);
+router.post('/config/:userId/test', authorizeAccess({ roles: ['super admin', 'admin'], permissions: ['employees.write', 'settings.write'] }), testEmployeeMailConfig);
+router.patch('/:id', updateMailAction);
+router.get('/', listMail); router.post('/', saveMail);
+module.exports = router;

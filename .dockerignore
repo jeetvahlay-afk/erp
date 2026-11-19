@@ -1,0 +1,14 @@
+.git
+.github
+**/node_modules
+**/dist
+**/.vite
+**/.env
+**/.env.*
+!**/.env.example
+server/uploads/*
+!server/uploads/.gitkeep
+!server/uploads/leaves/
+!server/uploads/leaves/.gitkeep
+*.log
+.DS_Store

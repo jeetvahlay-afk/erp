@@ -1,0 +1,29 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 320" width="360" height="320">
+  <!-- Purple Pillar (back left) -->
+  <polygon points="102,4 220,4 192,208 82,168" fill="#661EFF" />
+  <!-- Purple Face -->
+  <circle cx="174" cy="38" r="3" fill="#FFFFFF" />
+  <circle cx="206" cy="38" r="3" fill="#FFFFFF" />
+  <rect x="186" y="40" width="7" height="18" rx="3.5" fill="#0E1014" />
+
+  <!-- Black Pillar (middle) -->
+  <rect x="170" y="64" width="144" height="248" fill="#0E1014" />
+  <!-- Black Face: looking up-right -->
+  <circle cx="258" cy="86" r="9" fill="#FFFFFF" />
+  <circle cx="262" cy="83" r="4.5" fill="#0E1014" />
+  <circle cx="284" cy="86" r="9" fill="#FFFFFF" />
+  <circle cx="288" cy="83" r="4.5" fill="#0E1014" />
+
+  <!-- Yellow Pillar with Dome Top (right) -->
+  <path d="M 262 312 V 180 C 262 135, 280 124, 307 124 C 334 124, 352 135, 352 180 V 312 Z" fill="#F8D800" />
+  <!-- Yellow Face -->
+  <circle cx="342" cy="140" r="4.5" fill="#0E1014" />
+  <line x1="326" y1="150" x2="352" y2="150" stroke="#0E1014" stroke-width="4" stroke-linecap="round" />
+
+  <!-- Orange Mound (front left) -->
+  <path d="M 4 312 C 4 235, 50 196, 130 196 C 180 196, 216 230, 216 312 Z" fill="#FF8727" />
+  <!-- Orange Face -->
+  <circle cx="172" cy="226" r="5" fill="#0E1014" />
+  <circle cx="202" cy="226" r="5" fill="#0E1014" />
+  <path d="M 180 234 Q 188 246 195 234 Z" fill="#0E1014" />
+</svg>
