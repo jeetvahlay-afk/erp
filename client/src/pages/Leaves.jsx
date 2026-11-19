@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   CalendarCheck2,
@@ -12,6 +12,7 @@ import {
 import api, { asArray, getApiError } from '../lib/api';
 import { downloadCsv } from '../lib/export';
 import { feedback } from '../lib/feedback';
+import { useAuth } from '../context/AuthContext';
 import {
   EmptyState,
   ErrorState,
@@ -26,6 +27,7 @@ import {
 } from '../components/ui/EnterpriseUI';
 
 const Leaves = () => {
+  const { user } = useAuth();
   const [leaves, setLeaves] = useState([]);
   const [balances, setBalances] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,18 @@ const Leaves = () => {
     reason: '',
     attachment: null,
   });
+
+  const userBirthday = useMemo(() => {
+    if (!user?.dob) return null;
+    const d = new Date(user.dob);
+    if (Number.isNaN(d.getTime())) return null;
+    const month = d.getUTCMonth();
+    const day = d.getUTCDate();
+    const currentYear = new Date().getFullYear();
+    const dateStr = `${currentYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const formatted = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    return { dateStr, formatted, month, day };
+  }, [user?.dob]);
 
   const load = async () => {
     setLoading(true);
@@ -65,6 +79,21 @@ const Leaves = () => {
     if (!form.startDate || !form.endDate || form.reason.trim().length < 3) {
       feedback.error('Select a valid date range and provide a reason.');
       return;
+    }
+    if (form.leaveType === 'Birthday Leave') {
+      if (!userBirthday) {
+        feedback.error('Date of birth is not registered on your profile. Please update your profile before applying for Birthday Leave.');
+        return;
+      }
+      if (form.startDate !== form.endDate) {
+        feedback.error('Birthday Leave can only be applied for a single day (your birthday).');
+        return;
+      }
+      const sel = new Date(form.startDate);
+      if (sel.getUTCMonth() !== userBirthday.month || sel.getUTCDate() !== userBirthday.day) {
+        feedback.error(`Birthday Leave can only be applied on your birthday (${userBirthday.formatted}).`);
+        return;
+      }
     }
     const payload = new FormData();
     payload.append('leaveType', form.leaveType);
@@ -224,7 +253,19 @@ const Leaves = () => {
             <label className="text-xs font-semibold text-slate-700 block mb-1.5">Leave Type</label>
             <select
               value={form.leaveType}
-              onChange={(e) => setForm({ ...form, leaveType: e.target.value })}
+              onChange={(e) => {
+                const nextType = e.target.value;
+                if (nextType === 'Birthday Leave' && userBirthday) {
+                  setForm({
+                    ...form,
+                    leaveType: nextType,
+                    startDate: userBirthday.dateStr,
+                    endDate: userBirthday.dateStr,
+                  });
+                } else {
+                  setForm({ ...form, leaveType: nextType });
+                }
+              }}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             >
               {['Sick Leave', 'Casual Leave', 'Paid Leave', 'Unpaid Leave', 'Birthday Leave'].map(
@@ -234,6 +275,26 @@ const Leaves = () => {
               )}
             </select>
           </div>
+          {form.leaveType === 'Birthday Leave' && (
+            <div className="sm:col-span-2">
+              {userBirthday ? (
+                <div className="p-3 bg-pink-50 border border-pink-200/80 rounded-xl text-xs text-pink-700 flex items-center justify-between">
+                  <span>🎂 <strong>Birthday Leave:</strong> Eligible only on your birthday ({userBirthday.formatted}).</span>
+                  <button
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, startDate: userBirthday.dateStr, endDate: userBirthday.dateStr }))}
+                    className="underline font-semibold ml-2 text-pink-800 hover:text-pink-900 cursor-pointer"
+                  >
+                    Select Birthday Date
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-700">
+                  ⚠️ <strong>Date of birth required:</strong> Please update your date of birth in your user profile before applying for Birthday Leave.
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="text-xs font-semibold text-slate-700 block mb-1.5">Start Date</label>
             <input

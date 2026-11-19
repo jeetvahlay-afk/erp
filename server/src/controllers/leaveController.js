@@ -6,6 +6,7 @@ const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const validators = require('../validation/validators');
+const { getISTComponents } = require('../utils/date');
 const { writeAuditLog } = require('../services/auditService');
 const { dispatchNotifications, dispatchToActiveRoles } = require('../services/notificationService');
 
@@ -63,6 +64,56 @@ const applyLeave = asyncHandler(async (req, res) => {
   validators.ensure(!Number.isNaN(startDate.getTime()), 'Valid start date is required', 'startDate');
   validators.ensure(!Number.isNaN(endDate.getTime()), 'Valid end date is required', 'endDate');
   validators.ensure(endDate >= startDate, 'End date must be on or after start date', 'endDate');
+
+  if (leaveType === 'Birthday Leave') {
+    const user = await User.findById(req.user._id).select('dob name').lean();
+    if (!user?.dob) {
+      throw new AppError('Date of birth is not registered on your profile. Birthday Leave requires a valid date of birth.', 400, 'DOB_REQUIRED');
+    }
+
+    const dob = new Date(user.dob);
+    if (Number.isNaN(dob.getTime())) {
+      throw new AppError('Invalid date of birth on profile.', 400, 'INVALID_DOB');
+    }
+
+    const startIst = getISTComponents(startDate);
+    const endIst = getISTComponents(endDate);
+    const dobIst = getISTComponents(dob);
+
+    const isSingleDay = (startIst?.year === endIst?.year && startIst?.month === endIst?.month && startIst?.date === endIst?.date)
+      || (startDate.getUTCFullYear() === endDate.getUTCFullYear() && startDate.getUTCMonth() === endDate.getUTCMonth() && startDate.getUTCDate() === endDate.getUTCDate());
+
+    if (!isSingleDay) {
+      throw new AppError('Birthday Leave can only be applied for a single day (your birthday).', 400, 'BIRTHDAY_LEAVE_SINGLE_DAY');
+    }
+
+    const matchesBirthday = (startIst?.month === dobIst?.month && startIst?.date === dobIst?.date)
+      || (startDate.getUTCMonth() === dob.getUTCMonth() && startDate.getUTCDate() === dob.getUTCDate())
+      || (startDate.getMonth() === dob.getMonth() && startDate.getDate() === dob.getDate());
+
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const birthdayDay = dobIst?.date ?? dob.getUTCDate();
+    const birthdayMonth = monthNames[dobIst?.month ?? dob.getUTCMonth()];
+
+    if (!matchesBirthday) {
+      throw new AppError(`Birthday Leave can only be applied on your birthday (${birthdayDay} ${birthdayMonth}).`, 400, 'NOT_EMPLOYEE_BIRTHDAY');
+    }
+
+    const leaveYear = startIst?.year ?? startDate.getUTCFullYear();
+    const existingBirthdayLeave = await Leave.findOne({
+      user: req.user._id,
+      leaveType: 'Birthday Leave',
+      status: { $in: ['Pending', 'Approved'] },
+      startDate: {
+        $gte: new Date(Date.UTC(leaveYear, 0, 1)),
+        $lte: new Date(Date.UTC(leaveYear, 11, 31, 23, 59, 59, 999)),
+      },
+    });
+
+    if (existingBirthdayLeave) {
+      throw new AppError(`Birthday Leave has already been applied or approved for ${leaveYear}.`, 400, 'BIRTHDAY_LEAVE_ALREADY_USED');
+    }
+  }
 
   const overlapping = await Leave.exists({
     user: req.user._id,
