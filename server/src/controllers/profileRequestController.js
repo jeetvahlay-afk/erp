@@ -31,14 +31,17 @@ const createProfileRequest = asyncHandler(async (req, res) => {
 });
 
 const getMyProfileRequests = asyncHandler(async (req, res) => {
-  const requests = await ProfileRequest.find({ user: req.user._id }).sort({ createdAt: -1 }).lean();
+  const requests = await ProfileRequest.find({ user: req.user._id })
+    .populate('reviewedBy', 'name employeeId email')
+    .sort({ createdAt: -1 })
+    .lean();
   res.json(requests);
 });
 
 const getAllProfileRequests = asyncHandler(async (_req, res) => {
   const requests = await ProfileRequest.find({})
-    .populate('user', 'name employeeId email department')
-    .populate('reviewedBy', 'name employeeId')
+    .populate('user', 'name employeeId email department profileImage avatar')
+    .populate('reviewedBy', 'name employeeId email')
     .sort({ createdAt: -1 })
     .lean();
   res.json(requests);
@@ -66,7 +69,14 @@ const updateProfileRequestStatus = asyncHandler(async (req, res) => {
   request.reviewedBy = req.user._id;
   request.reviewedAt = new Date();
   await request.save();
-  await writeAuditLog(req, 'profile_request.reviewed', 'ProfileRequest', request._id, { field: request.field, status });
+  await writeAuditLog(req, 'profile_request.reviewed', 'ProfileRequest', request._id, {
+    field: request.field,
+    status,
+    oldValue: request.oldValue,
+    newValue: request.newValue,
+    adminComment: request.adminComment,
+    targetUser: request.user,
+  });
   await dispatchNotifications({
     recipients: request.user,
     title: `Profile update ${status}`,
@@ -77,6 +87,10 @@ const updateProfileRequestStatus = asyncHandler(async (req, res) => {
     sendEmail: true,
     metadata: { profileRequestId: request._id, field: request.field, status },
   });
+  await request.populate([
+    { path: 'user', select: 'name employeeId email department profileImage avatar' },
+    { path: 'reviewedBy', select: 'name employeeId email' },
+  ]);
   res.json(request);
 });
 

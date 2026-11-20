@@ -474,6 +474,16 @@ const UserProfile = () => {
                         <span className="text-[11px] text-slate-500">
                           {String(request.oldValue || '—')} → {String(request.newValue || '—')}
                         </span>
+                        {request.adminComment && (
+                          <span className="block text-[11px] text-slate-500 mt-0.5 italic">
+                            HR Note: {request.adminComment}
+                          </span>
+                        )}
+                        {request.reviewedBy && (
+                          <span className="block text-[10px] text-slate-400 mt-0.5">
+                            Reviewed by: {request.reviewedBy.name || 'Administrator'}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <StatusBadge>{request.status}</StatusBadge>

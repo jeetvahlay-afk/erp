@@ -5,6 +5,7 @@ import {
   Cake,
   CalendarCheck,
   CalendarDays,
+  Check,
   CheckCheck,
   CheckSquare,
   ChevronDown,
@@ -12,6 +13,8 @@ import {
   Clock,
   Coffee,
   CreditCard,
+  Eye,
+  EyeOff,
   FileCheck2,
   FileText,
   FolderOpen,
@@ -40,11 +43,17 @@ import {
 import api from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { feedback } from '../lib/feedback';
-import { ADMIN_ROLES, HR_ROLES, RECRUITMENT_ROLES, hasPermission, hasRole } from '../lib/access';
+import {
+  ADMIN_ROLES,
+  HR_ROLES,
+  RECRUITMENT_ROLES,
+  hasPermission,
+  hasRole,
+} from '../lib/access';
 import BreakOverlay from './BreakOverlay';
 import ShiftOvertimeModal from './ShiftOvertimeModal';
 import { useTheme } from '../context/ThemeContext';
-import { isAdministrator } from '../lib/routeAccess';
+import { canAccessRoute, isAdministrator } from '../lib/routeAccess';
 
 const formatTimeAgo = (dateStr) => {
   if (!dateStr) return '';
@@ -60,8 +69,54 @@ const formatTimeAgo = (dateStr) => {
   return `${diffDay}d ago`;
 };
 
+const DEFAULT_PRESET_BREAKS = [
+  { breakType: 'Tea Break', limit: 15 },
+  { breakType: 'Lunch Break', limit: 45 },
+  { breakType: 'Evening Break', limit: 15 },
+  { breakType: 'Quick Break', limit: 15 },
+];
+
+const calculateBreakDuration = (item) => {
+  if (item.calculatedLimit) return item.calculatedLimit;
+  if (item.allottedDuration) return item.allottedDuration;
+  if (!item.fromTime || !item.toTime) return Number(item.limit || 15);
+  const [fh, fm] = item.fromTime.split(':').map(Number);
+  const [th, tm] = item.toTime.split(':').map(Number);
+  let diff = (th * 60 + tm) - (fh * 60 + fm);
+  if (diff < 0) diff += 1440;
+  return diff || 15;
+};
+
+const formatBreakTimer = (seconds, exceededSeconds) => {
+  if (seconds > 0) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+  const m = Math.floor(exceededSeconds / 60);
+  const s = exceededSeconds % 60;
+  return `+${m}:${String(s).padStart(2, '0')}`;
+};
+
+const formatLoginTime = (timeStr) => {
+  if (!timeStr) return '';
+  const d = new Date(timeStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+};
+
 const Layout = () => {
-  const { user, logout } = useAuth();
+  const {
+    user,
+    logout,
+    attendanceStatus,
+    punch,
+    activeBreak,
+    timeLeft,
+    elapsedExceeded,
+    startBreakTimer,
+    endBreakTimer,
+  } = useAuth();
   const { appearance, updateAppearance } = useTheme();
   const isDark = appearance?.mode === 'dark' || (appearance?.mode === 'system' && (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches));
   const navigate = useNavigate();
@@ -69,6 +124,7 @@ const Layout = () => {
   const commandInputRef = useRef(null);
   const notificationsRef = useRef(null);
   const profileRef = useRef(null);
+  const shiftMenuRef = useRef(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -78,6 +134,23 @@ const Layout = () => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const [shiftMenuOpen, setShiftMenuOpen] = useState(false);
+  const [dailyBreaks, setDailyBreaks] = useState([]);
+  const [loadingBreaks, setLoadingBreaks] = useState(false);
+  const [punchLoading, setPunchLoading] = useState(false);
+  const [breakActionLoading, setBreakActionLoading] = useState(false);
+
+  const [pendingBreak, setPendingBreak] = useState(null);
+  const [breakPassword, setBreakPassword] = useState('');
+  const [breakPasswordError, setBreakPasswordError] = useState('');
+  const [showBreakPassword, setShowBreakPassword] = useState(false);
+  const [breakPasswordModalOpen, setBreakPasswordModalOpen] = useState(false);
+
+  const [breakOutPassword, setBreakOutPassword] = useState('');
+  const [breakOutPasswordError, setBreakOutPasswordError] = useState('');
+  const [showBreakOutPassword, setShowBreakOutPassword] = useState(false);
+  const [breakOutPasswordModalOpen, setBreakOutPasswordModalOpen] = useState(false);
 
   const isAdmin = hasRole(user, ADMIN_ROLES);
   const canHR = hasRole(user, HR_ROLES) || hasPermission(user, ['employees.read', 'attendance.read', 'leaves.read']);
@@ -92,15 +165,52 @@ const Layout = () => {
   const canAudit = isAdmin || hasPermission(user, ['audit.read']);
   const canBreaks = canAttendance || canSettings || isAdmin;
 
-  const assignedRoutes = Array.isArray(user?.allowedRoutes) ? user.allowedRoutes : [];
-  const routeAccessBypass = isAdministrator(user);
-  const routeIsAssigned = (path) =>
-    assignedRoutes.includes(path) ||
-    (path === '/attendance-register' && assignedRoutes.includes('/manage-attendance')) ||
-    (path === '/manage-breaks' && (assignedRoutes.includes('/manage-attendance') || assignedRoutes.includes('/configurations')));
+  const showRoute = useCallback(
+    (path, functionalAccess = true) => functionalAccess && canAccessRoute(user, path),
+    [user]
+  );
 
-  const showRoute = (path, functionalAccess = true) =>
-    functionalAccess && (routeAccessBypass || routeIsAssigned(path));
+  const hasDashboards =
+    showRoute('/dashboard/admin', isAdmin) ||
+    showRoute('/dashboard/employee') ||
+    showRoute('/dashboard/hr', canHR);
+
+  const hasHRRoutes =
+    showRoute('/manage-employee', canEmployees) ||
+    showRoute('/manage-departments', canDepartments) ||
+    showRoute('/manage-attendance', canAttendance) ||
+    showRoute('/manage-breaks', canBreaks) ||
+    showRoute('/manage-leaves', canLeave) ||
+    showRoute('/manage-interviews', canRecruit) ||
+    showRoute('/profile-requests', canEmployees) ||
+    showRoute('/work-reports', canEmployees) ||
+    showRoute('/payrolls', canPayroll) ||
+    showRoute('/salary-config', canPayroll);
+
+  const hasSelfService =
+    showRoute('/attendance') ||
+    showRoute('/leaves') ||
+    showRoute('/take-break') ||
+    showRoute('/my-payroll') ||
+    showRoute('/my-documents') ||
+    showRoute('/my-work-report');
+
+  const hasWorkspace =
+    showRoute('/tasks') ||
+    showRoute('/mail/inbox');
+
+  const hasCompany =
+    showRoute('/announcements') ||
+    showRoute('/birthdays') ||
+    showRoute('/events');
+
+  const hasSystemRoutes =
+    showRoute('/manage-roles', canRoles) ||
+    showRoute('/manage-routes', canSettings) ||
+    showRoute('/configurations', canSettings) ||
+    showRoute('/manage-shift', canSettings) ||
+    showRoute('/audit-logs', canAudit) ||
+    (isAdmin && showRoute('/settings/appearance'));
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -171,6 +281,9 @@ const Layout = () => {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
         setProfileOpen(false);
       }
+      if (shiftMenuRef.current && !shiftMenuRef.current.contains(event.target)) {
+        setShiftMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleDocumentClick);
     return () => document.removeEventListener('mousedown', handleDocumentClick);
@@ -181,7 +294,146 @@ const Layout = () => {
     setProfileOpen(false);
     setCommandOpen(false);
     setNotificationsOpen(false);
+    setShiftMenuOpen(false);
   }, [location.pathname]);
+
+  const fetchBreaks = useCallback(async () => {
+    setLoadingBreaks(true);
+    try {
+      const calDate = new Date().toLocaleDateString('en-CA');
+      const logicalDate = getLogicalDateString();
+      let res = await api.get(`/api/daily-breaks?date=${calDate}`);
+      if (!res.data?.breaks?.length && calDate !== logicalDate) {
+        try {
+          const altRes = await api.get(`/api/daily-breaks?date=${logicalDate}`);
+          if (altRes.data?.breaks?.length) res = altRes;
+        } catch {
+          // ignore
+        }
+      }
+      setDailyBreaks(asArray(res.data?.breaks));
+    } catch {
+      setDailyBreaks([]);
+    } finally {
+      setLoadingBreaks(false);
+    }
+  }, []);
+
+  const handleCheckIn = async () => {
+    setPunchLoading(true);
+    try {
+      await punch('in');
+      feedback.success('Checked in successfully. Have a productive day!');
+    } catch (error) {
+      feedback.error(getApiError(error, 'Unable to check in'));
+    } finally {
+      setPunchLoading(false);
+    }
+  };
+
+  const handleCheckOut = async () => {
+    if (activeBreak) {
+      feedback.warning('You are currently on a break. You must break out (end your break) before checking out.');
+      return;
+    }
+    const confirmed = await feedback.confirm(
+      'Are you sure you want to Check Out and complete your shift for today?',
+      {
+        title: 'Check Out Confirmation',
+        confirmLabel: 'Check Out',
+        tone: 'warning',
+      }
+    );
+    if (!confirmed) return;
+    setPunchLoading(true);
+    try {
+      await punch('out');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
+      feedback.success('Checked out successfully. Shift completed!');
+    } catch (error) {
+      feedback.error(getApiError(error, 'Unable to check out'));
+    } finally {
+      setPunchLoading(false);
+    }
+  };
+
+  const handleSelectBreak = (breakItem) => {
+    if (!attendanceStatus?.isPunchedIn) {
+      feedback.warning('Please check in before taking a break.');
+      return;
+    }
+    setPendingBreak(breakItem);
+    setBreakPassword('');
+    setBreakPasswordError('');
+    setBreakPasswordModalOpen(true);
+    setShiftMenuOpen(false);
+  };
+
+  const handleConfirmStartBreak = async (e) => {
+    e?.preventDefault();
+    if (!pendingBreak || !breakPassword) {
+      setBreakPasswordError('Please enter your account password.');
+      return;
+    }
+    setBreakActionLoading(true);
+    setBreakPasswordError('');
+    try {
+      await api.post('/api/auth/verify', { password: breakPassword });
+      const duration = calculateBreakDuration(pendingBreak);
+      const breakType = pendingBreak.fromTime
+        ? `${pendingBreak.breakType} [${pendingBreak.fromTime}-${pendingBreak.toTime}]`
+        : pendingBreak.breakType;
+      const { data: breakLog } = await api.post('/api/breaks/start', {
+        breakType,
+        allottedDuration: duration,
+      });
+      startBreakTimer(breakLog);
+      setBreakPasswordModalOpen(false);
+      setPendingBreak(null);
+      setBreakPassword('');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
+      feedback.success(`${pendingBreak.breakType} started (${duration} mins).`);
+    } catch (error) {
+      setBreakPasswordError(getApiError(error, 'Verification failed. Incorrect password.'));
+    } finally {
+      setBreakActionLoading(false);
+    }
+  };
+
+  const handleOpenBreakOutModal = () => {
+    if (!activeBreak?._id) return;
+    setBreakOutPassword('');
+    setBreakOutPasswordError('');
+    setBreakOutPasswordModalOpen(true);
+    setShiftMenuOpen(false);
+  };
+
+  const handleConfirmEndBreak = async (e) => {
+    e?.preventDefault();
+    if (!activeBreak?._id || !breakOutPassword) {
+      setBreakOutPasswordError('Please enter your account password.');
+      return;
+    }
+    setBreakActionLoading(true);
+    setBreakOutPasswordError('');
+    try {
+      await api.post('/api/auth/verify', { password: breakOutPassword });
+      await api.put(`/api/breaks/end/${activeBreak._id}`, { password: breakOutPassword });
+      endBreakTimer();
+      setBreakOutPasswordModalOpen(false);
+      setBreakOutPassword('');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
+      feedback.success('Break ended. Welcome back to work!');
+    } catch (error) {
+      setBreakOutPasswordError(getApiError(error, 'Verification failed. Incorrect password.'));
+    } finally {
+      setBreakActionLoading(false);
+    }
+  };
+
+  const availableBreaks = useMemo(() => (
+    dailyBreaks.length > 0 ? dailyBreaks : DEFAULT_PRESET_BREAKS
+  ), [dailyBreaks]);
 
   const handleLogout = async () => {
     const accepted = await feedback.confirm('End your current ERP session?', {
@@ -399,6 +651,236 @@ const Layout = () => {
       <BreakOverlay />
       <ShiftOvertimeModal />
 
+      {/* Verify Break Start Password Modal (Navbar Break) */}
+      {breakPasswordModalOpen && pendingBreak && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            className="fixed inset-0"
+            onClick={() => {
+              setBreakPasswordModalOpen(false);
+              setPendingBreak(null);
+            }}
+            aria-hidden="true"
+          />
+          <section className="relative w-full max-w-md bg-white dark:bg-[#111827] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 z-10 text-left">
+            <header className="flex items-start justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                  Verify Break Start
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {pendingBreak.breakType} · {calculateBreakDuration(pendingBreak)} minutes
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBreakPasswordModalOpen(false);
+                  setPendingBreak(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <form className="mt-5 space-y-4" onSubmit={handleConfirmStartBreak}>
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                  <Coffee size={18} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {pendingBreak.breakType}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Duration: {calculateBreakDuration(pendingBreak)} minutes allotted
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Account Password to Confirm
+                </label>
+                <div
+                  className={`flex items-center bg-white dark:bg-slate-900 border ${
+                    breakPasswordError
+                      ? 'border-rose-400 ring-2 ring-rose-400/20'
+                      : 'border-slate-300 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                  } rounded-xl px-3 py-2 transition-all`}
+                >
+                  <input
+                    type={showBreakPassword ? 'text' : 'password'}
+                    value={breakPassword}
+                    onChange={(e) => setBreakPassword(e.target.value)}
+                    placeholder="Enter your login password..."
+                    className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none"
+                    autoFocus
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowBreakPassword((prev) => !prev)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                    aria-label={showBreakPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showBreakPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                {breakPasswordError && (
+                  <p className="text-xs text-rose-500 font-medium mt-1.5 flex items-center gap-1">
+                    <ShieldCheck size={13} />
+                    {breakPasswordError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  onClick={() => {
+                    setBreakPasswordModalOpen(false);
+                    setPendingBreak(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={breakActionLoading || !breakPassword}
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  {breakActionLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <ShieldCheck size={14} />
+                  )}
+                  Verify & Start Break
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* Verify Break Out Password Modal (Navbar Break Out) */}
+      {breakOutPasswordModalOpen && activeBreak && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            className="fixed inset-0"
+            onClick={() => {
+              setBreakOutPasswordModalOpen(false);
+            }}
+            aria-hidden="true"
+          />
+          <section className="relative w-full max-w-md bg-white dark:bg-[#111827] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 z-10 text-left">
+            <header className="flex items-start justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                  Verify Break Out
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Confirm your password to end break and resume your shift.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBreakOutPasswordModalOpen(false);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <form onSubmit={handleConfirmEndBreak} className="mt-4 space-y-4">
+              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <Coffee size={18} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                    {String(activeBreak.breakType || 'Break').split(' [')[0]}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Ending break and returning to work
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Account Password to Confirm
+                </label>
+                <div
+                  className={`flex items-center bg-white dark:bg-slate-900 border ${
+                    breakOutPasswordError
+                      ? 'border-rose-400 ring-2 ring-rose-400/20'
+                      : 'border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                  } rounded-2xl px-3.5 py-2.5 transition-all`}
+                >
+                  <input
+                    type={showBreakOutPassword ? 'text' : 'password'}
+                    value={breakOutPassword}
+                    onChange={(e) => {
+                      setBreakOutPassword(e.target.value);
+                      if (breakOutPasswordError) setBreakOutPasswordError('');
+                    }}
+                    placeholder="Enter your login password"
+                    className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none"
+                    autoFocus
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowBreakOutPassword((curr) => !curr)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                    aria-label={showBreakOutPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showBreakOutPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+                {breakOutPasswordError && (
+                  <p className="text-xs text-rose-500 font-medium mt-1.5 flex items-center gap-1">
+                    <ShieldCheck size={13} />
+                    {breakOutPasswordError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  onClick={() => {
+                    setBreakOutPasswordModalOpen(false);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={breakActionLoading || !breakOutPassword}
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  {breakActionLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <ShieldCheck size={14} />
+                  )}
+                  Verify & Resume Work
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
       {/* Command Palette Modal (Ctrl K) */}
       {commandOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-slate-900/40 backdrop-blur-xs">
@@ -422,50 +904,58 @@ const Layout = () => {
               </kbd>
             </div>
             <div className="p-2 max-h-72 overflow-y-auto space-y-1">
-              <button
-                type="button"
-                onClick={() => {
-                  navigate('/dashboard/admin');
-                  setCommandOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Admin Dashboard</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  navigate('/dashboard/employee');
-                  setCommandOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Employee Dashboard</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  navigate('/manage-employee');
-                  setCommandOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
-              >
-                <Users className="w-4 h-4" />
-                <span>Employee Directory</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  navigate('/manage-attendance');
-                  setCommandOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
-              >
-                <Clock className="w-4 h-4" />
-                <span>Attendance Management</span>
-              </button>
+              {showRoute('/dashboard/admin', isAdmin) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/dashboard/admin');
+                    setCommandOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Admin Dashboard</span>
+                </button>
+              )}
+              {showRoute('/dashboard/employee') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/dashboard/employee');
+                    setCommandOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Employee Dashboard</span>
+                </button>
+              )}
+              {showRoute('/manage-employee', canEmployees) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/manage-employee');
+                    setCommandOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Employee Directory</span>
+                </button>
+              )}
+              {showRoute('/manage-attendance', canAttendance) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/manage-attendance');
+                    setCommandOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl cursor-pointer"
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>Attendance Management</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -531,62 +1021,66 @@ const Layout = () => {
           {/* Navigation Links */}
           <nav className="erp-sb-nav flex-1 overflow-y-auto px-2.5 py-2 select-none">
             {/* 1. ADMINISTRATION WORKSPACE / DASHBOARDS */}
-            <div>
-              <div className="erp-sb-section-title !mt-1">
-                {isAdmin || canHR ? 'ADMINISTRATION WORKSPACE' : 'DASHBOARDS'}
+            {hasDashboards && (
+              <div>
+                <div className="erp-sb-section-title !mt-1">
+                  {isAdmin || canHR ? 'ADMINISTRATION WORKSPACE' : 'DASHBOARDS'}
+                </div>
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setDashboardsOpen((prev) => !prev)}
+                    className="erp-sb-dropdown-btn"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <LayoutGrid size={16} />
+                      <span className="font-medium">Dashboards</span>
+                    </div>
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform duration-200 ${dashboardsOpen ? '' : '-rotate-90'}`}
+                    />
+                  </button>
+
+                  {dashboardsOpen && (
+                    <div className="pl-1 space-y-1 pt-0.5">
+                      {showRoute('/dashboard/admin', isAdmin) && (
+                        <NavLink
+                          to="/dashboard/admin"
+                          className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                        >
+                          <LayoutDashboard size={15} />
+                          <span>Admin Dashboard</span>
+                        </NavLink>
+                      )}
+
+                      {showRoute('/dashboard/employee') && (
+                        <NavLink
+                          to="/dashboard/employee"
+                          className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                        >
+                          <LayoutDashboard size={15} />
+                          <span>Employee Dashboard</span>
+                        </NavLink>
+                      )}
+
+                      {showRoute('/dashboard/hr', canHR) && (
+                        <NavLink
+                          to="/dashboard/hr"
+                          className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                        >
+                          <LayoutDashboard size={15} />
+                          <span>HR Dashboard</span>
+                        </NavLink>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => setDashboardsOpen((prev) => !prev)}
-                  className="erp-sb-dropdown-btn"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <LayoutGrid size={16} />
-                    <span className="font-medium">Dashboards</span>
-                  </div>
-                  <ChevronDown
-                    size={14}
-                    className={`transition-transform duration-200 ${dashboardsOpen ? '' : '-rotate-90'}`}
-                  />
-                </button>
-
-                {dashboardsOpen && (
-                  <div className="pl-1 space-y-1 pt-0.5">
-                    {showRoute('/dashboard/admin', isAdmin) && (
-                      <NavLink
-                        to="/dashboard/admin"
-                        className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                      >
-                        <LayoutDashboard size={15} />
-                        <span>Admin Dashboard</span>
-                      </NavLink>
-                    )}
-
-                    <NavLink
-                      to="/dashboard/employee"
-                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                    >
-                      <LayoutDashboard size={15} />
-                      <span>Employee Dashboard</span>
-                    </NavLink>
-
-                    {showRoute('/dashboard/hr', canHR) && (
-                      <NavLink
-                        to="/dashboard/hr"
-                        className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                      >
-                        <LayoutDashboard size={15} />
-                        <span>HR Dashboard</span>
-                      </NavLink>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+            )}
 
             {/* 2. HR MANAGEMENT */}
-            {(canEmployees || canDepartments || canAttendance || canBreaks || canLeave || canRecruit || canPayroll) && (
+            {hasHRRoutes && (
               <div>
                 <div className="erp-sb-section-title">HR MANAGEMENT</div>
                 <div className="space-y-1">
@@ -694,113 +1188,141 @@ const Layout = () => {
             )}
 
             {/* 3. SELF SERVICE */}
-            <div>
-              <div className="erp-sb-section-title">SELF SERVICE</div>
-              <div className="space-y-1">
-                <NavLink
-                  to="/attendance"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <Clock size={16} />
-                  <span>My Attendance</span>
-                </NavLink>
+            {hasSelfService && (
+              <div>
+                <div className="erp-sb-section-title">SELF SERVICE</div>
+                <div className="space-y-1">
+                  {showRoute('/attendance') && (
+                    <NavLink
+                      to="/attendance"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Clock size={16} />
+                      <span>My Attendance</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/leaves"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <CalendarDays size={16} />
-                  <span>My Leaves</span>
-                </NavLink>
+                  {showRoute('/leaves') && (
+                    <NavLink
+                      to="/leaves"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <CalendarDays size={16} />
+                      <span>My Leaves</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/take-break"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <Coffee size={16} />
-                  <span>My Breaks</span>
-                </NavLink>
+                  {showRoute('/take-break') && (
+                    <NavLink
+                      to="/take-break"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Coffee size={16} />
+                      <span>My Breaks</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/my-payroll"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <Receipt size={16} />
-                  <span>My Payroll</span>
-                </NavLink>
+                  {showRoute('/my-payroll') && (
+                    <NavLink
+                      to="/my-payroll"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Receipt size={16} />
+                      <span>My Payroll</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/my-documents"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <FolderOpen size={16} />
-                  <span>My Documents</span>
-                </NavLink>
+                  {showRoute('/my-documents') && (
+                    <NavLink
+                      to="/my-documents"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <FolderOpen size={16} />
+                      <span>My Documents</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/my-work-report"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <FileCheck2 size={16} />
-                  <span>My Work Report</span>
-                </NavLink>
+                  {showRoute('/my-work-report') && (
+                    <NavLink
+                      to="/my-work-report"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <FileCheck2 size={16} />
+                      <span>My Work Report</span>
+                    </NavLink>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 4. WORKSPACE & PRODUCTIVITY */}
-            <div>
-              <div className="erp-sb-section-title">WORKSPACE</div>
-              <div className="space-y-1">
-                <NavLink
-                  to="/tasks"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <CheckSquare size={16} />
-                  <span>Tasks</span>
-                </NavLink>
+            {hasWorkspace && (
+              <div>
+                <div className="erp-sb-section-title">WORKSPACE</div>
+                <div className="space-y-1">
+                  {showRoute('/tasks') && (
+                    <NavLink
+                      to="/tasks"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <CheckSquare size={16} />
+                      <span>Tasks</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/mail/inbox"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <Mail size={16} />
-                  <span>Mailbox</span>
-                </NavLink>
+                  {showRoute('/mail/inbox') && (
+                    <NavLink
+                      to="/mail/inbox"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Mail size={16} />
+                      <span>Mailbox</span>
+                    </NavLink>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 5. COMPANY & CULTURE */}
-            <div>
-              <div className="erp-sb-section-title">COMPANY</div>
-              <div className="space-y-1">
-                <NavLink
-                  to="/announcements"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <Megaphone size={16} />
-                  <span>Announcements</span>
-                </NavLink>
+            {hasCompany && (
+              <div>
+                <div className="erp-sb-section-title">COMPANY</div>
+                <div className="space-y-1">
+                  {showRoute('/announcements') && (
+                    <NavLink
+                      to="/announcements"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Megaphone size={16} />
+                      <span>Announcements</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/birthdays"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <Cake size={16} />
-                  <span>Birthdays</span>
-                </NavLink>
+                  {showRoute('/birthdays') && (
+                    <NavLink
+                      to="/birthdays"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <Cake size={16} />
+                      <span>Birthdays</span>
+                    </NavLink>
+                  )}
 
-                <NavLink
-                  to="/events"
-                  className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                >
-                  <CalendarDays size={16} />
-                  <span>Events</span>
-                </NavLink>
+                  {showRoute('/events') && (
+                    <NavLink
+                      to="/events"
+                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
+                    >
+                      <CalendarDays size={16} />
+                      <span>Events</span>
+                    </NavLink>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* 5. SYSTEM & CONFIGURATION (Administrator only) */}
-            {(isAdmin || (canRoles && showRoute('/manage-roles', canRoles)) || (canAudit && showRoute('/audit-logs', canAudit))) && (
+            {/* 6. SYSTEM & CONFIGURATION */}
+            {hasSystemRoutes && (
               <div>
                 <div className="erp-sb-section-title">SYSTEM & CONFIG</div>
                 <div className="space-y-1">
@@ -854,7 +1376,7 @@ const Layout = () => {
                     </NavLink>
                   )}
 
-                  {isAdmin && (
+                  {showRoute('/settings/appearance', isAdmin || canSettings) && (
                     <NavLink
                       to="/settings/appearance"
                       className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
@@ -934,8 +1456,224 @@ const Layout = () => {
             </div>
           </div>
 
-          {/* Right: Theme Toggle, Notifications, Mailbox, User Avatar */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* Right: Quick Attendance/Breaks, Theme Toggle, Notifications, Mailbox, User Avatar */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
+            {user && (
+              <>
+                {/* Single Combined Shift, Break & Check Out Option */}
+                {attendanceStatus.loading ? (
+                  <div className="h-8 w-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse hidden xs:block" />
+                ) : attendanceStatus.isShiftCompleted ? (
+                  <div
+                    className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1.5 select-none"
+                    title="Shift completed for today"
+                  >
+                    <Check size={13} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+                    <span>Shift Done</span>
+                  </div>
+                ) : !attendanceStatus.isPunchedIn ? (
+                  <button
+                    type="button"
+                    onClick={handleCheckIn}
+                    disabled={punchLoading}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs hover:shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    title="Check in for today's shift"
+                  >
+                    {punchLoading ? <Loader2 size={13} className="animate-spin" /> : <LogIn size={13} />}
+                    <span>Check In</span>
+                  </button>
+                ) : (
+                  /* Single Option on Navbar containing both Break & Check Out */
+                  <div className="relative" ref={shiftMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !shiftMenuOpen;
+                        setShiftMenuOpen(next);
+                        if (next && !activeBreak) fetchBreaks();
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-2 shadow-2xs ${
+                        activeBreak
+                          ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 animate-pulse'
+                          : shiftMenuOpen
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-600'
+                          : 'bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
+                      }`}
+                      title={activeBreak ? 'On Break - Click for shift options' : 'Shift Active - Click for break and check out options'}
+                    >
+                      {activeBreak ? (
+                        <>
+                          <Coffee size={13} />
+                          <span>
+                            Break Out <span className="font-mono text-[11px] opacity-90 hidden sm:inline">({formatBreakTimer(timeLeft, elapsedExceeded)})</span>
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                          <span>On Shift</span>
+                        </>
+                      )}
+                      <ChevronDown
+                        size={12}
+                        className={`transition-transform duration-200 ${shiftMenuOpen ? 'rotate-180' : ''} ${
+                          activeBreak ? 'text-amber-100' : 'text-slate-400'
+                        }`}
+                      />
+                    </button>
+
+                    {/* Unified Dropdown Menu for Breaks and Check Out */}
+                    {shiftMenuOpen && (
+                      <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2.5 z-50 text-left">
+                        {/* Status Header */}
+                        <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl mb-2 flex items-center justify-between border border-slate-100 dark:border-slate-800/80">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${activeBreak ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                {activeBreak ? 'On Break' : 'Shift Active'}
+                              </p>
+                              {attendanceStatus.loginTime && (
+                                <p className="text-[10px] text-slate-400 truncate">
+                                  Checked in at {formatLoginTime(attendanceStatus.loginTime)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
+                            activeBreak
+                              ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                              : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                          }`}>
+                            {activeBreak ? 'Break' : 'Working'}
+                          </span>
+                        </div>
+
+                        {/* Breaks Section */}
+                        <div className="mb-2">
+                          {activeBreak ? (
+                            <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 truncate pr-2">
+                                  <Coffee size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                  <span className="truncate">{String(activeBreak.breakType || 'Break').split(' [')[0]}</span>
+                                </span>
+                                <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                                  {formatBreakTimer(timeLeft, elapsedExceeded)}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleOpenBreakOutModal();
+                                }}
+                                disabled={breakActionLoading}
+                                className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                {breakActionLoading ? <Loader2 size={13} className="animate-spin" /> : <LockKeyhole size={13} />}
+                                <span>Break Out (Enter Password)</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="px-2 py-1 flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                <span className="flex items-center gap-1.5">
+                                  <Coffee size={12} className="text-amber-500" />
+                                  Break Options
+                                </span>
+                                <span className="text-[10px] lowercase font-normal">1-click start</span>
+                              </div>
+
+                              <div className="max-h-48 overflow-y-auto space-y-0.5 py-1">
+                                {loadingBreaks ? (
+                                  <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                    <Loader2 size={13} className="animate-spin" />
+                                    Loading breaks...
+                                  </div>
+                                ) : (
+                                  availableBreaks.map((item, idx) => {
+                                    const duration = calculateBreakDuration(item);
+                                    return (
+                                      <button
+                                        key={item.id || item._id || idx}
+                                        type="button"
+                                        onClick={() => handleSelectBreak(item)}
+                                        disabled={breakActionLoading}
+                                        className="w-full px-2.5 py-1.5 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors flex items-center justify-between group cursor-pointer"
+                                      >
+                                        <div className="min-w-0 pr-2">
+                                          <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                                            {item.breakType}
+                                          </p>
+                                          {item.fromTime && item.toTime && (
+                                            <p className="text-[10px] text-slate-400">
+                                              {item.fromTime} - {item.toTime}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/60 group-hover:text-amber-700 dark:group-hover:text-amber-300">
+                                          {duration}m
+                                        </span>
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShiftMenuOpen(false);
+                                  navigate('/take-break');
+                                }}
+                                className="w-full px-2.5 py-1 text-left text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center justify-between cursor-pointer"
+                              >
+                                <span>Custom break request</span>
+                                <span>→</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Divider */}
+                        <div className="border-t border-slate-100 dark:border-slate-800/80 my-1.5" />
+
+                        {/* Check Out Option */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeBreak) {
+                              feedback.warning('You are currently on a break. You must break out (end your break) before checking out.');
+                              return;
+                            }
+                            setShiftMenuOpen(false);
+                            handleCheckOut();
+                          }}
+                          disabled={Boolean(activeBreak) || punchLoading}
+                          className={`w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors ${
+                            activeBreak
+                              ? 'bg-slate-100 text-slate-400 border border-slate-200/60 dark:bg-slate-800/50 dark:text-slate-500 dark:border-slate-800 cursor-not-allowed opacity-60'
+                              : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 dark:hover:bg-rose-900/50 cursor-pointer group'
+                          }`}
+                          title={activeBreak ? 'You must break out before checking out' : 'End shift for today'}
+                        >
+                          <div className="flex items-center gap-2">
+                            {punchLoading ? <Loader2 size={13} className="animate-spin" /> : <LogOut size={13} className={activeBreak ? "text-slate-400" : "text-rose-600 dark:text-rose-400"} />}
+                            <span>Check Out</span>
+                          </div>
+                          <span className={`text-[10px] font-normal ${activeBreak ? 'text-slate-400 dark:text-slate-500' : 'text-rose-400 dark:text-rose-500 group-hover:underline'}`}>
+                            {activeBreak ? 'Break out required first' : 'End shift for today'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 mx-0.5 hidden xs:block" />
+              </>
+            )}
+
             <button
               type="button"
               onClick={() => updateAppearance({ mode: isDark ? 'light' : 'dark' })}

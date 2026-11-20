@@ -267,6 +267,10 @@ const punchInOut = asyncHandler(async (req, res) => {
   } else {
     if (!record?.loginTime) throw new AppError('You must punch in before punching out', 409, 'NOT_PUNCHED_IN');
     if (record.logoutTime) return res.json({ message: 'Already punched out for this shift', record });
+    const ongoingBreak = await BreakLog.findOne({ user: req.user._id, status: 'Ongoing' });
+    if (ongoingBreak) {
+      throw new AppError('You cannot check out while on a break. Please end your break (break out) first.', 400, 'ACTIVE_BREAK_EXISTS');
+    }
     record.logoutTime = new Date();
     await record.save();
     await writeAuditLog(req, 'attendance.punch_out', 'Attendance', record._id, { totalHours: record.totalHours });

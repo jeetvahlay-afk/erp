@@ -76,28 +76,36 @@ const getDepartmentDistribution = () => User.aggregate([
 const getWeeklyAttendance = async () => {
   const today = startOfDay();
   const from = addDays(today, -6);
-  const rows = await Attendance.aggregate([
-    { $match: { date: { $gte: from, $lte: endOfDay(today) } } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        present: { $sum: { $cond: [{ $in: ['$status', ['Present', 'Late', 'Half Day']] }, 1, 0] } },
-        late: { $sum: { $cond: [{ $eq: ['$status', 'Late'] }, 1, 0] } },
-        absent: { $sum: { $cond: [{ $eq: ['$status', 'Absent'] }, 1, 0] } },
+  const [rows, activeEmployees] = await Promise.all([
+    Attendance.aggregate([
+      { $match: { date: { $gte: from, $lte: endOfDay(today) } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+          present: { $sum: { $cond: [{ $in: ['$status', ['Present', 'Late', 'Half Day']] }, 1, 0] } },
+          late: { $sum: { $cond: [{ $eq: ['$status', 'Late'] }, 1, 0] } },
+          absent: { $sum: { $cond: [{ $eq: ['$status', 'Absent'] }, 1, 0] } },
+        },
       },
-    },
+    ]),
+    User.countDocuments({ deletedAt: null, isActive: true }),
   ]);
   const byDate = new Map(rows.map((row) => [row._id, row]));
   return Array.from({ length: 7 }, (_, index) => {
     const date = addDays(from, index);
     const key = date.toISOString().slice(0, 10);
     const row = byDate.get(key) || {};
+    const present = row.present || 0;
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+    const computedAbsent = (row.absent && row.absent > 0)
+      ? row.absent
+      : (!isWeekend && date <= today ? Math.max(0, activeEmployees - present) : 0);
     return {
       date: key,
       label: date.toLocaleDateString('en-US', { weekday: 'short' }),
-      present: row.present || 0,
+      present,
       late: row.late || 0,
-      absent: row.absent || 0,
+      absent: computedAbsent,
     };
   });
 };
@@ -350,7 +358,7 @@ const attendanceDashboard = async () => {
   const breakMinutes = sum(breaks.map((row) => row.actualDuration));
   return {
     view: 'attendance', generatedAt: new Date(),
-    kpis: { activeEmployees, present, late, absent, attendanceRate: percentage(present, activeEmployees), pendingRegularizations: missingPunches, averageHours: avgHours, breakMinutes },
+    kpis: { activeEmployees, totalEmployees: activeEmployees, present, late, absent, attendanceRate: percentage(present, activeEmployees), pendingRegularizations: missingPunches, averageHours: avgHours, breakMinutes },
     weekly, todayRows: processedTodayRows, lateEmployees,
   };
 };

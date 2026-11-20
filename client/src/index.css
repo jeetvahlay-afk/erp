@@ -5267,7 +5267,9 @@ html.dark .erp-preview-window {
   margin: 8px 0 0;
   font-size: clamp(62px, 12vw, 104px);
   line-height: 1;
-  letter-spacing: -5px;
+  letter-spacing: normal;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .erp-break-overlay-card>strong {

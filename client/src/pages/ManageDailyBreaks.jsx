@@ -130,7 +130,7 @@ const ManageDailyBreaks = () => {
     setState((current) => ({ ...current, processing: request._id }));
     try {
       await api.put(`/api/break-requests/${request._id}`, { status });
-      feedback.success(`Break request ${status}.`);
+      feedback.success(`Break request ${status.toLowerCase()}.`);
       load();
     } catch (error) {
       feedback.error(getApiError(error, 'Unable to update request'));
@@ -141,7 +141,9 @@ const ManageDailyBreaks = () => {
   const sortedRequests = useMemo(
     () =>
       [...requests].sort((a, b) => {
-        const priority = Number(b.status === 'pending') - Number(a.status === 'pending');
+        const isPendingA = String(a.status).toLowerCase() === 'pending';
+        const isPendingB = String(b.status).toLowerCase() === 'pending';
+        const priority = Number(isPendingB) - Number(isPendingA);
         return priority || new Date(b.createdAt) - new Date(a.createdAt);
       }),
     [requests]
@@ -317,30 +319,42 @@ const ManageDailyBreaks = () => {
                     </td>
                     <td className="py-3 px-4 text-slate-700 font-medium">{req.reason || req.breakType || 'Break'}</td>
                     <td className="py-3 px-4 text-slate-600">
-                      {formatDate(req.date || req.createdAt)} · {displayTime(req.fromTime)} -{' '}
-                      {displayTime(req.toTime)}
+                      {formatDate(req.date || req.createdAt)} ·{' '}
+                      {req.requestedDuration
+                        ? `${req.requestedDuration} mins`
+                        : req.fromTime && req.toTime
+                        ? `${displayTime(req.fromTime)} - ${displayTime(req.toTime)}`
+                        : 'Custom'}
                     </td>
                     <td className="py-3 px-4">
-                      <StatusBadge tone={req.status === 'approved' ? 'success' : req.status === 'rejected' ? 'danger' : 'warning'}>
+                      <StatusBadge
+                        tone={
+                          String(req.status).toLowerCase() === 'approved'
+                            ? 'success'
+                            : String(req.status).toLowerCase() === 'rejected'
+                            ? 'danger'
+                            : 'warning'
+                        }
+                      >
                         {req.status || 'Pending'}
                       </StatusBadge>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      {req.status === 'pending' ? (
-                        <div className="inline-flex items-center gap-1.5">
+                      {String(req.status).toLowerCase() === 'pending' ? (
+                        <div className="inline-flex items-center gap-1.5 justify-end">
                           <button
                             type="button"
                             disabled={state.processing === req._id}
-                            onClick={() => decide(req, 'approved')}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer"
+                            onClick={() => decide(req, 'Approved')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
                           >
                             <Check size={12} /> Approve
                           </button>
                           <button
                             type="button"
                             disabled={state.processing === req._id}
-                            onClick={() => decide(req, 'rejected')}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
+                            onClick={() => decide(req, 'Rejected')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
                           >
                             <X size={12} /> Reject
                           </button>

@@ -29,10 +29,11 @@ const calculateLimit = (item) => {
 };
 
 const TakeBreak = () => {
-  const { activeBreak, startBreakTimer, endBreakTimer, timeLeft, elapsedExceeded } = useAuth();
+  const { activeBreak, startBreakTimer, endBreakTimer, timeLeft, elapsedExceeded, elapsedSeconds, attendanceStatus } = useAuth();
   const [data, setData] = useState({ breaks: [], history: [], requests: [] });
   const [state, setState] = useState({ loading: true, error: '', submitting: false });
   const [pending, setPending] = useState(null);
+  const [endBreakModalOpen, setEndBreakModalOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [requestOpen, setRequestOpen] = useState(false);
   const [request, setRequest] = useState({ reason: '', requestedDuration: 15 });
@@ -40,10 +41,21 @@ const TakeBreak = () => {
   const load = async () => {
     setState((current) => ({ ...current, loading: true, error: '' }));
     try {
-      const date = getLogicalDateString();
+      const calDate = new Date().toLocaleDateString('en-CA');
+      const logicalDate = getLogicalDateString();
       const [scheduleResponse, historyResponse, requestResponse] = await Promise.all([
-        api.get(`/api/daily-breaks?date=${date}`),
-        api.get(`/api/breaks/my-breaks?date=${date}`),
+        api.get(`/api/daily-breaks?date=${calDate}`).then(async (res) => {
+          if (!res.data?.breaks?.length && calDate !== logicalDate) {
+            try {
+              const altRes = await api.get(`/api/daily-breaks?date=${logicalDate}`);
+              if (altRes.data?.breaks?.length) return altRes;
+            } catch {
+              // keep initial response
+            }
+          }
+          return res;
+        }),
+        api.get(`/api/breaks/my-breaks?date=${logicalDate}`),
         api.get('/api/break-requests/my-requests'),
       ]);
       setData({
@@ -66,21 +78,44 @@ const TakeBreak = () => {
 
   useEffect(() => {
     load();
+    const handleBreaksUpdated = () => load();
+    window.addEventListener('teamhub:breaks-updated', handleBreaksUpdated);
+    return () => window.removeEventListener('teamhub:breaks-updated', handleBreaksUpdated);
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [activeBreak?._id]);
 
   const isTaken = (item) =>
     data.history.some(
       (entry) =>
         entry.breakType === `${item.breakType} [${item.fromTime}-${item.toTime}]` ||
-        entry.breakType === item.breakType
+        entry.breakType === item.breakType ||
+        (item.breakType && entry.breakType?.startsWith(item.breakType))
     );
 
+  const totalBreakMinutesToday = useMemo(() => {
+    return data.history.reduce((sum, item) => {
+      if (item.status === 'Ongoing') {
+        const liveMins = Math.max(1, Math.ceil((elapsedSeconds || 1) / 60));
+        return sum + liveMins;
+      }
+      return sum + Number(item.actualDuration || 0);
+    }, 0);
+  }, [data.history, elapsedSeconds]);
+
   const approvedRequests = useMemo(
-    () => data.requests.filter((requestItem) => requestItem.status === 'approved' && !requestItem.isUsed),
+    () => data.requests.filter((requestItem) => String(requestItem.status).toLowerCase() === 'approved' && !requestItem.isUsed),
     [data.requests]
   );
 
   const start = async () => {
+    if (!attendanceStatus?.isPunchedIn) {
+      feedback.warning('You must check in for your shift before taking a break.');
+      setPending(null);
+      return;
+    }
     if (!pending || !password) {
       feedback.error('Enter your password to verify this break action.');
       return;
@@ -95,10 +130,12 @@ const TakeBreak = () => {
         breakType,
         allottedDuration: pending.calculatedLimit,
         requestId: pending.requestId,
+        password,
       });
       startBreakTimer(breakLog);
       setPending(null);
       setPassword('');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
       feedback.success('Break started.');
       load();
     } catch (error) {
@@ -108,23 +145,30 @@ const TakeBreak = () => {
     }
   };
 
-  const end = async () => {
-    const accepted = await feedback.confirm(
-      'Are you sure you want to end your current break and return to work?',
-      {
-        title: 'End Break',
-        confirmLabel: 'End Break',
-        tone: 'warning',
-      }
-    );
-    if (!accepted) return;
+  const handleOpenEndBreak = () => {
+    setPassword('');
+    setEndBreakModalOpen(true);
+  };
+
+  const confirmEndBreak = async () => {
+    if (!password) {
+      feedback.error('Enter your password to verify ending your break.');
+      return;
+    }
+    setState((current) => ({ ...current, submitting: true }));
     try {
-      await api.put(`/api/breaks/end/${activeBreak._id}`, {});
+      await api.post('/api/auth/verify', { password });
+      await api.put(`/api/breaks/end/${activeBreak._id}`, { password });
       endBreakTimer();
-      feedback.success('Break ended.');
+      setEndBreakModalOpen(false);
+      setPassword('');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
+      feedback.success('Break ended. Welcome back to work!');
       load();
     } catch (error) {
-      feedback.error(getApiError(error, 'Unable to end break'));
+      feedback.error(getApiError(error, 'Verification failed. Incorrect password.'));
+    } finally {
+      setState((current) => ({ ...current, submitting: false }));
     }
   };
 
@@ -177,27 +221,36 @@ const TakeBreak = () => {
         {/* Active Break Panel */}
         <div className="lg:col-span-5 bg-white dark:bg-slate-800 rounded-xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs flex flex-col justify-between">
           <div>
-            <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mb-3">
-              {activeBreak ? 'Active Break' : 'Break Status'}
+            <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mb-3 flex items-center justify-between">
+              <span>{activeBreak ? 'Active Break' : 'Break Status'}</span>
+              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                Today: {totalBreakMinutesToday}m
+              </span>
             </h2>
             {activeBreak ? (
               <div className="flex flex-col items-center justify-center p-4 sm:p-5 text-center gap-2.5 bg-blue-50/50 dark:bg-slate-700/40 rounded-xl border border-blue-100 dark:border-slate-600">
                 <div className="w-12 h-12 rounded-xl bg-[var(--erp-primary,#2563eb)] text-white flex items-center justify-center shadow-md">
                   <Timer size={24} />
                 </div>
-                <div
-                  className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${
-                    elapsedExceeded ? 'text-rose-600' : 'text-slate-900 dark:text-white'
-                  }`}
-                >
-                  {elapsedExceeded ? `+${secondsLabel(elapsedExceeded)}` : secondsLabel(timeLeft)}
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                    Break Time Taken
+                  </span>
+                  <div className="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-slate-900 dark:text-white">
+                    {secondsLabel(elapsedSeconds)}
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1 block">
+                    {elapsedExceeded
+                      ? `Overtime: +${secondsLabel(elapsedExceeded)}`
+                      : `Time Left: ${secondsLabel(timeLeft)}`}
+                  </span>
                 </div>
                 <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{activeBreak.breakType}</p>
                 <StatusBadge tone={elapsedExceeded ? 'danger' : 'success'}>
                   {elapsedExceeded ? 'Overtime' : 'In Progress'}
                 </StatusBadge>
                 <div className="mt-2">
-                  <ToolbarButton danger icon={Square} onClick={end}>
+                  <ToolbarButton danger icon={Square} onClick={handleOpenEndBreak}>
                     End Break
                   </ToolbarButton>
                 </div>
@@ -228,13 +281,17 @@ const TakeBreak = () => {
                   <button
                     type="button"
                     key={item.id}
-                    disabled={taken || Boolean(activeBreak)}
+                    disabled={taken || Boolean(activeBreak) || !attendanceStatus?.isPunchedIn}
                     onClick={() => {
+                      if (!attendanceStatus?.isPunchedIn) {
+                        feedback.warning('You must check in for your shift before taking a break.');
+                        return;
+                      }
                       setPassword('');
                       setPending(item);
                     }}
                     className={`flex items-center justify-between p-3.5 rounded-xl border text-left transition-all ${
-                      taken
+                      taken || !attendanceStatus?.isPunchedIn
                         ? 'bg-slate-50 border-slate-200/60 opacity-60 cursor-not-allowed'
                         : 'bg-white border-slate-200 hover:border-blue-400 hover:bg-blue-50/20 cursor-pointer shadow-2xs'
                     }`}
@@ -263,8 +320,12 @@ const TakeBreak = () => {
                 <button
                   type="button"
                   key={item._id}
-                  disabled={Boolean(activeBreak)}
+                  disabled={Boolean(activeBreak) || !attendanceStatus?.isPunchedIn}
                   onClick={() => {
+                    if (!attendanceStatus?.isPunchedIn) {
+                      feedback.warning('You must check in for your shift before taking a break.');
+                      return;
+                    }
                     setPassword('');
                     setPending({
                       breakType: `Custom: ${item.reason}`,
@@ -272,7 +333,9 @@ const TakeBreak = () => {
                       requestId: item._id,
                     });
                   }}
-                  className="flex items-center justify-between p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/20 hover:bg-emerald-50 text-left transition-all cursor-pointer shadow-2xs"
+                  className={`flex items-center justify-between p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/20 text-left transition-all shadow-2xs ${
+                    !attendanceStatus?.isPunchedIn ? 'opacity-60 cursor-not-allowed' : 'hover:bg-emerald-50 cursor-pointer'
+                  }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
@@ -325,7 +388,11 @@ const TakeBreak = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900">{item.actualDuration || 0} min</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {item.status === 'Ongoing'
+                        ? `${Math.max(1, Math.ceil((elapsedSeconds || 1) / 60))} min (live)`
+                        : `${item.actualDuration || 0} min`}
+                    </span>
                     <StatusBadge
                       tone={
                         item.isExceeded ? 'danger' : item.status === 'Ongoing' ? 'warning' : 'success'
@@ -378,6 +445,37 @@ const TakeBreak = () => {
             <ToolbarButton onClick={() => setPending(null)}>Cancel</ToolbarButton>
             <ToolbarButton primary disabled={state.submitting} onClick={start}>
               {state.submitting ? 'Verifying…' : 'Start Break'}
+            </ToolbarButton>
+          </>
+        }
+      >
+        <div>
+          <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+            Account Password to Confirm
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+            placeholder="Enter your login password..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
+          />
+        </div>
+      </Modal>
+
+      {/* End Break Password Modal */}
+      <Modal
+        open={endBreakModalOpen}
+        title="Verify Break Out"
+        subtitle="Confirm your password to end break and return to work"
+        onClose={() => setEndBreakModalOpen(false)}
+        size="sm"
+        footer={
+          <>
+            <ToolbarButton onClick={() => setEndBreakModalOpen(false)}>Cancel</ToolbarButton>
+            <ToolbarButton primary disabled={state.submitting || !password} onClick={confirmEndBreak}>
+              {state.submitting ? 'Verifying…' : 'Verify & End Break'}
             </ToolbarButton>
           </>
         }

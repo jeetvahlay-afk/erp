@@ -1,17 +1,34 @@
 const mongoose = require('mongoose');
 const BreakLog = require('../models/BreakLog');
 const BreakRequest = require('../models/BreakRequest');
+const Attendance = require('../models/Attendance');
 const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const validators = require('../validation/validators');
-const { logicalShiftWindow } = require('../utils/date');
+const { logicalShiftWindow, startOfLogicalShiftDay } = require('../utils/date');
 const { writeAuditLog } = require('../services/auditService');
 const { dispatchNotifications } = require('../services/notificationService');
 
 const startBreak = asyncHandler(async (req, res) => {
   const ongoing = await BreakLog.findOne({ user: req.user._id, status: 'Ongoing' });
   if (ongoing) throw new AppError('You already have an ongoing break', 409, 'BREAK_ALREADY_ACTIVE');
+
+  const todayLogical = startOfLogicalShiftDay(new Date());
+  const attendance = await Attendance.findOne({ user: req.user._id, date: todayLogical });
+  if (attendance && attendance.logoutTime) {
+    throw new AppError('Your shift has already ended for today', 400, 'SHIFT_ALREADY_COMPLETED');
+  }
+  if (!attendance?.loginTime && !['admin', 'super admin'].includes(req.user.role)) {
+    throw new AppError('You must check in for your shift before taking a break', 400, 'NOT_CHECKED_IN');
+  }
+
+  if (req.body.password) {
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user || !(await user.matchPassword(req.body.password))) {
+      throw new AppError('Invalid password', 401, 'INVALID_CREDENTIALS');
+    }
+  }
 
   let breakType = validators.requiredString(req.body.breakType, 'breakType', { max: 120 });
   let allottedDuration = validators.number(req.body.allottedDuration, 'allottedDuration', { min: 1, max: 240 });
@@ -62,6 +79,13 @@ const endBreak = asyncHandler(async (req, res) => {
   const isAdmin = ['admin', 'super admin'].includes(req.user.role);
   if (!isOwner && !isAdmin) throw new AppError('You cannot end another employee’s break', 403, 'FORBIDDEN');
   if (breakLog.status === 'Completed') return res.json(breakLog);
+
+  if (req.body.password) {
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user || !(await user.matchPassword(req.body.password))) {
+      throw new AppError('Invalid password', 401, 'INVALID_CREDENTIALS');
+    }
+  }
 
   const endTime = new Date();
   const actualDuration = Math.max(0, Math.ceil((endTime - breakLog.startTime) / 60000));

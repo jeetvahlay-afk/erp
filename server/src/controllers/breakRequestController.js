@@ -40,7 +40,8 @@ const getAllRequests = asyncHandler(async (_req, res) => {
 
 const updateRequestStatus = asyncHandler(async (req, res) => {
   validators.objectId(req.params.id, 'request id');
-  const status = validators.enumValue(req.body.status, ['Approved', 'Rejected'], 'status');
+  const inputStatus = req.body.status ? (String(req.body.status).charAt(0).toUpperCase() + String(req.body.status).slice(1).toLowerCase()) : '';
+  const status = validators.enumValue(inputStatus, ['Approved', 'Rejected'], 'status');
   const adminComment = validators.optionalString(req.body.adminComment, 'adminComment', { max: 500 });
   const request = await BreakRequest.findById(req.params.id);
   if (!request) throw new AppError('Request not found', 404, 'REQUEST_NOT_FOUND');

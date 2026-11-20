@@ -10,8 +10,41 @@ export const AuthProvider = ({ children }) => {
   const [activeBreak, setActiveBreak] = useState(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const [elapsedExceeded, setElapsedExceeded] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [attendanceStatus, setAttendanceStatus] = useState({
+    loading: true,
+    hasRecord: false,
+    isPunchedIn: false,
+    isShiftCompleted: false,
+    loginTime: null,
+    logoutTime: null,
+  });
   const timerRef = useRef(null);
   const wakeLockRef = useRef(null);
+
+  const fetchAttendanceStatus = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/attendance/shift-status');
+      setAttendanceStatus({
+        loading: false,
+        hasRecord: Boolean(data?.hasRecord),
+        isPunchedIn: Boolean(data?.isPunchedIn),
+        isShiftCompleted: Boolean(data?.isShiftCompleted),
+        loginTime: data?.loginTime || null,
+        logoutTime: data?.logoutTime || null,
+      });
+      return data;
+    } catch {
+      setAttendanceStatus((prev) => ({ ...prev, loading: false }));
+      return null;
+    }
+  }, []);
+
+  const punch = useCallback(async (action) => {
+    const { data } = await api.post('/api/attendance/punch', { action });
+    await fetchAttendanceStatus();
+    return data;
+  }, [fetchAttendanceStatus]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) window.clearInterval(timerRef.current);
@@ -19,10 +52,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const updateBreakTimer = useCallback((breakLog) => {
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(breakLog.startTime).getTime()) / 1000));
+    const elapsed = Math.max(0, Math.floor((Date.now() - new Date(breakLog.startTime).getTime()) / 1000));
     const allottedSeconds = Math.max(1, Number(breakLog.allottedDuration || 15)) * 60;
-    setTimeLeft(Math.max(0, allottedSeconds - elapsedSeconds));
-    setElapsedExceeded(Math.max(0, elapsedSeconds - allottedSeconds));
+    setElapsedSeconds(elapsed);
+    setTimeLeft(Math.max(0, allottedSeconds - elapsed));
+    setElapsedExceeded(Math.max(0, elapsed - allottedSeconds));
   }, []);
 
   const startBreakTimer = useCallback((breakLog) => {
@@ -37,6 +71,7 @@ export const AuthProvider = ({ children }) => {
     setActiveBreak(null);
     setTimeLeft(0);
     setElapsedExceeded(0);
+    setElapsedSeconds(0);
   }, [stopTimer]);
 
   const hydrateActiveBreak = useCallback(async () => {
@@ -64,7 +99,12 @@ export const AuthProvider = ({ children }) => {
     const restoreSession = async () => {
       try {
         const session = await refreshUser();
-        if (session && mounted) await hydrateActiveBreak();
+        if (session && mounted) {
+          await Promise.allSettled([
+            hydrateActiveBreak(),
+            fetchAttendanceStatus(),
+          ]);
+        }
       } catch {
         clearSession();
         if (mounted) setUser(null);
@@ -78,6 +118,14 @@ export const AuthProvider = ({ children }) => {
       clearSession();
       setUser(null);
       endBreakTimer();
+      setAttendanceStatus({
+        loading: false,
+        hasRecord: false,
+        isPunchedIn: false,
+        isShiftCompleted: false,
+        loginTime: null,
+        logoutTime: null,
+      });
     };
     window.addEventListener('teamhub:session-expired', handleSessionExpired);
     return () => {
@@ -85,7 +133,7 @@ export const AuthProvider = ({ children }) => {
       stopTimer();
       window.removeEventListener('teamhub:session-expired', handleSessionExpired);
     };
-  }, [endBreakTimer, hydrateActiveBreak, refreshUser, stopTimer]);
+  }, [endBreakTimer, fetchAttendanceStatus, hydrateActiveBreak, refreshUser, stopTimer]);
 
   useEffect(() => {
     if (!activeBreak || !('wakeLock' in navigator)) return undefined;
@@ -128,14 +176,17 @@ export const AuthProvider = ({ children }) => {
       } catch {
         // If shift already completed for today, allow session to continue without re-punching
       }
-      await hydrateActiveBreak();
+      await Promise.allSettled([
+        hydrateActiveBreak(),
+        fetchAttendanceStatus(),
+      ]);
       return { success: true };
     } catch (error) {
       clearSession();
       setUser(null);
       return { success: false, error: getApiError(error, 'Unable to sign in') };
     }
-  }, [hydrateActiveBreak]);
+  }, [fetchAttendanceStatus, hydrateActiveBreak]);
 
   const logout = useCallback(async (isDayComplete = false) => {
     try {
@@ -147,6 +198,14 @@ export const AuthProvider = ({ children }) => {
       clearSession();
       setUser(null);
       endBreakTimer();
+      setAttendanceStatus({
+        loading: false,
+        hasRecord: false,
+        isPunchedIn: false,
+        isShiftCompleted: false,
+        loginTime: null,
+        logoutTime: null,
+      });
     }
   }, [endBreakTimer]);
 
@@ -159,8 +218,13 @@ export const AuthProvider = ({ children }) => {
     activeBreak,
     timeLeft,
     elapsedExceeded,
+    elapsedSeconds,
     startBreakTimer,
     endBreakTimer,
+    hydrateActiveBreak,
+    attendanceStatus,
+    fetchAttendanceStatus,
+    punch,
   }), [
     user,
     login,
@@ -170,8 +234,13 @@ export const AuthProvider = ({ children }) => {
     activeBreak,
     timeLeft,
     elapsedExceeded,
+    elapsedSeconds,
     startBreakTimer,
     endBreakTimer,
+    hydrateActiveBreak,
+    attendanceStatus,
+    fetchAttendanceStatus,
+    punch,
   ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

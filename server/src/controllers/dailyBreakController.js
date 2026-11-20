@@ -4,7 +4,7 @@ const Settings = require('../models/Settings');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const validators = require('../validation/validators');
-const { isIsoDate } = require('../utils/date');
+const { isIsoDate, getISTComponents } = require('../utils/date');
 const { writeAuditLog } = require('../services/auditService');
 
 const normalizeBreaks = (breaks) => {
@@ -20,8 +20,22 @@ const normalizeBreaks = (breaks) => {
 
 const getDailyBreaks = asyncHandler(async (req, res) => {
   if (!isIsoDate(req.query.date)) throw new AppError('A valid date is required (YYYY-MM-DD)', 400, 'INVALID_DATE');
-  const dailySchedule = await DailySchedule.findOne({ dateText: req.query.date }).lean();
-  if (dailySchedule) return res.json({ isCustom: true, breaks: dailySchedule.breaks });
+  let dailySchedule = await DailySchedule.findOne({ dateText: req.query.date }).lean();
+  if (dailySchedule && dailySchedule.breaks && dailySchedule.breaks.length > 0) {
+    return res.json({ isCustom: true, breaks: dailySchedule.breaks });
+  }
+
+  // Fallback: If not found for the requested date, check if a daily schedule was set for today's current date
+  const ist = getISTComponents(new Date());
+  const todayDate = ist ? `${ist.year}-${String(ist.month + 1).padStart(2, '0')}-${String(ist.date).padStart(2, '0')}` : new Date().toLocaleDateString('en-CA');
+  if (req.query.date !== todayDate) {
+    dailySchedule = await DailySchedule.findOne({ dateText: todayDate }).lean();
+    if (dailySchedule && dailySchedule.breaks && dailySchedule.breaks.length > 0) {
+      return res.json({ isCustom: true, breaks: dailySchedule.breaks });
+    }
+  }
+
+  if (dailySchedule) return res.json({ isCustom: true, breaks: dailySchedule.breaks || [] });
 
   const globalBreaks = await Settings.findOne({ type: 'breaks' }).lean();
   return res.json({ isCustom: false, breaks: Array.isArray(globalBreaks?.config) ? globalBreaks.config : [] });
