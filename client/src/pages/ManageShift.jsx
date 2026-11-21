@@ -30,6 +30,7 @@ const emptyShift = () => ({
   shiftName: '',
   startTime: '',
   endTime: '',
+  gracePeriod: 15,
   isNightShift: false,
 });
 
@@ -58,6 +59,7 @@ const ManageShift = () => {
   const [editing, setEditing] = useState(null);
   const [assigning, setAssigning] = useState(null);
   const [selectedEmployees, setSelectedEmployees] = useState([]);
+  const [showOtherShifts, setShowOtherShifts] = useState(false);
   const [search, setSearch] = useState('');
 
   const load = async () => {
@@ -102,9 +104,13 @@ const ManageShift = () => {
       feedback.error('Shift name, start time, and end time are required.');
       return;
     }
-    const next = shifts.some((shift) => shift.id === editing.id)
-      ? shifts.map((shift) => (shift.id === editing.id ? editing : shift))
-      : [...shifts, editing];
+    const cleanShift = {
+      ...editing,
+      gracePeriod: editing.gracePeriod === '' || editing.gracePeriod === undefined ? 15 : Number(editing.gracePeriod),
+    };
+    const next = shifts.some((shift) => shift.id === cleanShift.id)
+      ? shifts.map((shift) => (shift.id === cleanShift.id ? cleanShift : shift))
+      : [...shifts, cleanShift];
     persist(next.sort((a, b) => a.startTime.localeCompare(b.startTime)));
   };
 
@@ -124,10 +130,11 @@ const ManageShift = () => {
   const openAssignModal = (shift) => {
     setAssigning(shift);
     const assignedIds = employees
-      .filter((employee) => employee.shift === shift.id)
+      .filter((employee) => employee.shift === shift.id || employee.shift === shift._id)
       .map((employee) => employee._id);
     setSelectedEmployees(assignedIds);
     setSearch('');
+    setShowOtherShifts(false);
   };
 
   const toggleEmployee = (id) => {
@@ -153,15 +160,20 @@ const ManageShift = () => {
     }
   };
 
-  const filteredEmployees = useMemo(
-    () =>
-      employees.filter((employee) =>
-        `${employee.name} ${employee.employeeId} ${employee.department}`
-          .toLowerCase()
-          .includes(search.toLowerCase())
-      ),
-    [employees, search]
-  );
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((employee) => {
+      const matchesSearch = `${employee.name} ${employee.employeeId} ${employee.department}`
+        .toLowerCase()
+        .includes(search.toLowerCase());
+      if (!matchesSearch) return false;
+      if (!assigning) return true;
+
+      const isThisShift = employee.shift === assigning.id || employee.shift === assigning._id;
+      const isUnassigned = !employee.shift;
+      if (showOtherShifts) return true;
+      return isThisShift || isUnassigned;
+    });
+  }, [employees, search, assigning, showOtherShifts]);
 
   if (state.loading) return <LoadingState label="Loading workforce shifts…" />;
   if (state.error) return <ErrorState message={state.error} retry={load} />;
@@ -220,6 +232,7 @@ const ManageShift = () => {
                 <th className="py-2.5 pl-4 sm:pl-5 pr-2.5">SHIFT NAME</th>
                 <th className="py-2.5 px-2.5">TIME WINDOW</th>
                 <th className="py-2.5 px-2.5">DURATION</th>
+                <th className="py-2.5 px-2.5">GRACE PERIOD</th>
                 <th className="py-2.5 px-2.5">TYPE</th>
                 <th className="py-2.5 px-2.5">ASSIGNED STAFF</th>
                 <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTIONS</th>
@@ -254,6 +267,11 @@ const ManageShift = () => {
                     <td className="py-2.5 px-2.5">
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700">
                         {duration(shift)} hrs
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-2.5">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        {shift.gracePeriod !== undefined && shift.gracePeriod !== null ? shift.gracePeriod : 15} mins
                       </span>
                     </td>
                     <td className="py-2.5 px-2.5">
@@ -351,6 +369,31 @@ const ManageShift = () => {
               />
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Grace Period (Minutes)
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                max="180"
+                placeholder="15"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-3.5 pr-14 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
+                value={editing?.gracePeriod !== undefined ? editing.gracePeriod : 15}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0);
+                  setEditing({ ...editing, gracePeriod: val });
+                }}
+              />
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 pointer-events-none">
+                mins
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Employees punching in after (Start Time + Grace Period) are marked as Late.
+            </p>
+          </div>
           <label className="flex items-center gap-2.5 pt-1 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -378,41 +421,87 @@ const ManageShift = () => {
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs pb-1">
+            <span className="text-slate-500 text-[11px]">
+              {showOtherShifts
+                ? 'Showing all employees (including staff on other shifts)'
+                : 'Showing unassigned staff & staff on this shift'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowOtherShifts((prev) => !prev)}
+              className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer text-left sm:text-right"
+            >
+              {showOtherShifts ? 'Hide staff on other shifts' : 'Show staff on other shifts'}
+            </button>
+          </div>
+
           <SearchInput
             value={search}
             onChange={setSearch}
             placeholder="Search employees by name, ID, department..."
           />
-          <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 border border-slate-200/80 rounded-xl">
+
+          <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl">
             {filteredEmployees.map((emp) => {
               const checked = selectedEmployees.includes(emp._id);
+              const isCurrentShift = emp.shift === assigning?.id || emp.shift === assigning?._id;
+              const otherShift = !isCurrentShift && emp.shift
+                ? shifts.find((s) => s.id === emp.shift || s._id === emp.shift)
+                : null;
+
               return (
                 <label
                   key={emp._id}
-                  className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors cursor-pointer"
+                  className={`flex items-center justify-between p-3 transition-colors cursor-pointer ${
+                    checked
+                      ? 'bg-blue-50/50 dark:bg-blue-950/20'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                  }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleEmployee(emp._id)}
-                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
                     />
                     <Avatar user={emp} size="sm" />
-                    <div>
-                      <strong className="block text-xs font-bold text-slate-900 leading-tight">
+                    <div className="min-w-0">
+                      <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
                         {emp.name}
                       </strong>
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[11px] text-slate-400 truncate block">
                         {emp.employeeId} · {emp.department || 'General'}
                       </span>
                     </div>
                   </div>
-                  {checked && <StatusBadge tone="success">Assigned</StatusBadge>}
+
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    {checked ? (
+                      <StatusBadge tone="success">Assigned</StatusBadge>
+                    ) : otherShift ? (
+                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 px-2 py-0.5 rounded-full">
+                        On: {otherShift.shiftName}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                        Available
+                      </span>
+                    )}
+                  </div>
                 </label>
               );
             })}
+
+            {!filteredEmployees.length && (
+              <div className="py-8 text-center text-xs text-slate-400">
+                {search
+                  ? `No employees matching "${search}".`
+                  : 'No available unassigned staff found for this shift.'}
+              </div>
+            )}
           </div>
         </div>
       </Modal>

@@ -16,7 +16,6 @@ export const availableRoutes = Object.freeze([
   { path: '/my-documents', name: 'My Documents', description: 'Personal employment documents.' },
   { path: '/tasks', name: 'My Tasks', description: 'Personal and assigned task list.' },
   { path: '/my-work-report', name: 'My Work Report', description: 'Submit daily accomplishments, hours, progress, and blockers.' },
-  { path: '/mail/inbox', name: 'Mailbox', description: 'Employee inbox, compose, sent mail, drafts, and settings.' },
   { path: '/announcements', name: 'Announcements', description: 'Company announcements and updates.' },
   { path: '/birthdays', name: 'Birthdays', description: 'Upcoming employee birthdays.' },
   { path: '/events', name: 'Events', description: 'Company events and important dates.' },
@@ -29,7 +28,6 @@ export const availableRoutes = Object.freeze([
   { path: '/manage-breaks', name: 'Daily Break Schedule', description: 'Daily break allowances and schedules.' },
   { path: '/audit-logs', name: 'Audit Logs', description: 'Security and administration history.' },
   { path: '/configurations', name: 'Configuration List', description: 'System-wide operational settings.' },
-  { path: '/mail-config', name: 'Mail Configuration', description: 'Outgoing email account settings.' },
   { path: '/accounts-config', name: 'Accounts Configuration', description: 'Financial account settings.' },
 ]);
 
@@ -56,7 +54,6 @@ const configuredRouteForPath = (pathname) => {
   if (/^\/interview\/[^/]+$/.test(path)) return '/manage-interviews';
   if (/^\/work-reports\/[^/]+$/.test(path)) return '/work-reports';
   if (path.startsWith('/tasks/')) return '/tasks';
-  if (path.startsWith('/mail/') && path !== '/mail/inbox') return '/mail/inbox';
   return path;
 };
 

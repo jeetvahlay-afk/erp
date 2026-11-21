@@ -14,7 +14,13 @@ const subscribe = (userId, res) => {
 const publish = (recipients, event, data) => {
   [...new Set((Array.isArray(recipients) ? recipients : [recipients]).filter(Boolean).map(String))]
     .forEach((recipient) => clients.get(recipient)?.forEach((res) => {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      try {
+        if (res && !res.destroyed && !res.writableEnded) {
+          res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        }
+      } catch {
+        // Stream closed or broken connection
+      }
     }));
 };
 

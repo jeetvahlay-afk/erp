@@ -16,8 +16,27 @@ const streamNotifications = asyncHandler(async (req, res) => {
   res.flushHeaders();
   res.write('event: ready\ndata: {}\n\n');
   const unsubscribe = subscribe(req.user._id, res);
-  const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 25000);
-  req.on('close', () => { clearInterval(heartbeat); unsubscribe(); });
+
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  };
+
+  const heartbeat = setInterval(() => {
+    try {
+      if (!res.destroyed && !res.writableEnded) {
+        res.write(': heartbeat\n\n');
+      } else {
+        cleanup();
+      }
+    } catch {
+      cleanup();
+    }
+  }, 25000);
+
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+  res.on('error', cleanup);
 
   const now = new Date();
   const dayKey = now.toISOString().slice(0, 10);

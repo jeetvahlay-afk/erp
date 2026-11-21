@@ -129,11 +129,13 @@ const getRecruitmentFunnel = async () => {
   const counts = new Map(groups.map((group) => [group._id, group.count]));
   return {
     applied: sum([...counts.values()]),
-    shortlisted: sum(['1st Round Pending', '1st Round Completed', '2nd Round Pending', '2nd Round Completed', 'Selected', 'Joined', 'Training'].map((key) => counts.get(key))),
-    interviewed: sum(['1st Round Completed', '2nd Round Pending', '2nd Round Completed', 'Selected', 'Joined', 'Training'].map((key) => counts.get(key))),
-    offered: sum(['Selected', 'Joined', 'Training'].map((key) => counts.get(key))),
-    hired: sum(['Joined', 'Training'].map((key) => counts.get(key))),
+    daily: sum(['New Candidate Info', 'Interview Scheduled', 'Reschedule', 'Rescheduled', 'No Response', 'Scheduled'].map((key) => counts.get(key))),
+    interviewed: sum(['Assessment Done', '1st Round', '2nd Round', 'Selected', 'Rejected'].map((key) => counts.get(key))),
+    training: sum(['In Training', 'Training Candidates', 'Training'].map((key) => counts.get(key))),
+    hired: counts.get('Joined') || 0,
+    shortlisted: sum(['Interview Scheduled', 'Assessment Done', '1st Round', '2nd Round', 'Selected', 'In Training'].map((key) => counts.get(key))),
     rejected: counts.get('Rejected') || 0,
+    selected: counts.get('Selected') || 0,
   };
 };
 
@@ -156,7 +158,7 @@ const adminDashboard = async () => {
     Attendance.countDocuments({ date: today, status: 'Late' }),
     Leave.countDocuments({ status: 'Pending' }),
     Payroll.find({ month }).select('netSalary paymentStatus').lean(),
-    Interview.countDocuments({ interviewDate: { $gte: new Date() }, status: { $nin: ['Rejected', 'Not Joined', 'Joined'] } }),
+    Interview.countDocuments({ interviewDate: { $gte: new Date() }, status: { $nin: ['Rejected', 'Joined'] } }),
     getDepartmentDistribution(),
     getWeeklyAttendance(),
     getPayrollTrend(),
@@ -256,7 +258,7 @@ const hrDashboard = async () => {
     Payroll.aggregate([{ $match: { month: isoMonth() } }, { $group: { _id: null, net: { $sum: '$netSalary' }, count: { $sum: 1 } } }]),
     getDepartmentDistribution(), getWeeklyAttendance(),
     Leave.find({ status: 'Pending' }).populate('user', 'name employeeId department profileImage').sort({ createdAt: 1 }).limit(6).lean(),
-    Interview.find({ interviewDate: { $gte: new Date() }, status: { $nin: ['Rejected', 'Not Joined', 'Joined'] } }).sort({ interviewDate: 1 }).limit(5).lean(),
+    Interview.find({ interviewDate: { $gte: new Date() }, status: { $nin: ['Rejected', 'Joined'] } }).sort({ interviewDate: 1 }).limit(5).lean(),
     Attendance.find({ date: today, status: 'Late' }).populate('user', 'name department employeeId profileImage').sort({ loginTime: 1 }).limit(6).lean(),
     getRecruitmentFunnel(),
   ]);
@@ -308,9 +310,9 @@ const recruitmentDashboard = async () => {
   const [funnel, candidates, upcoming, byPost] = await Promise.all([
     getRecruitmentFunnel(),
     Interview.find().sort({ entryDate: -1, createdAt: -1 }).limit(8).lean(),
-    Interview.find({ interviewDate: { $gte: now }, status: { $nin: ['Rejected', 'Not Joined', 'Joined'] } }).sort({ interviewDate: 1 }).limit(6).lean(),
+    Interview.find({ interviewDate: { $gte: now }, status: { $nin: ['Rejected', 'Joined'] } }).sort({ interviewDate: 1 }).limit(6).lean(),
     Interview.aggregate([
-      { $group: { _id: { $ifNull: ['$candidatePost', 'Unspecified'] }, applicants: { $sum: 1 }, hired: { $sum: { $cond: [{ $in: ['$status', ['Joined', 'Training']] }, 1, 0] } } } },
+      { $group: { _id: { $ifNull: ['$candidatePost', 'Unspecified'] }, applicants: { $sum: 1 }, hired: { $sum: { $cond: [{ $eq: ['$status', 'Joined'] }, 1, 0] } } } },
       { $sort: { applicants: -1 } }, { $limit: 8 },
       { $project: { _id: 0, label: '$_id', applicants: 1, hired: 1 } },
     ]),

@@ -4,6 +4,8 @@ import {
   CreditCard,
   Droplet,
   Edit3,
+  Eye,
+  EyeOff,
   ImagePlus,
   LockKeyhole,
   LogOut,
@@ -58,6 +60,9 @@ const UserProfile = () => {
   const [changeField, setChangeField] = useState(null);
   const [newValue, setNewValue] = useState('');
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwords, setPasswords] = useState({
     currentPassword: '',
     newPassword: '',
@@ -566,29 +571,51 @@ const UserProfile = () => {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Current Password
             </label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
-              value={passwords.currentPassword}
-              onChange={(e) =>
-                setPasswords((current) => ({ ...current, currentPassword: e.target.value }))
-              }
-            />
+            <div className="relative">
+              <input
+                type={showCurrentPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-3.5 pr-10 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
+                value={passwords.currentPassword}
+                onChange={(e) =>
+                  setPasswords((current) => ({ ...current, currentPassword: e.target.value }))
+                }
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title={showCurrentPassword ? 'Hide password' : 'Show password'}
+                aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
+              >
+                {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               New Password
             </label>
-            <input
-              type="password"
-              autoComplete="new-password"
-              className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
-              value={passwords.newPassword}
-              onChange={(e) =>
-                setPasswords((current) => ({ ...current, newPassword: e.target.value }))
-              }
-            />
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-3.5 pr-10 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
+                value={passwords.newPassword}
+                onChange={(e) =>
+                  setPasswords((current) => ({ ...current, newPassword: e.target.value }))
+                }
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title={showNewPassword ? 'Hide password' : 'Show password'}
+                aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+              >
+                {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
             <p className="text-[11px] text-slate-400 mt-1">
               Minimum 8 characters with letters and numbers.
             </p>
@@ -597,15 +624,26 @@ const UserProfile = () => {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Confirm New Password
             </label>
-            <input
-              type="password"
-              autoComplete="new-password"
-              className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
-              value={passwords.confirmPassword}
-              onChange={(e) =>
-                setPasswords((current) => ({ ...current, confirmPassword: e.target.value }))
-              }
-            />
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-3.5 pr-10 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
+                value={passwords.confirmPassword}
+                onChange={(e) =>
+                  setPasswords((current) => ({ ...current, confirmPassword: e.target.value }))
+                }
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
         </div>
       </Modal>

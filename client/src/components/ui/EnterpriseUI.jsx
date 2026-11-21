@@ -513,7 +513,7 @@ export const Modal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs" role="dialog" aria-modal="true" aria-labelledby="erp-modal-title">
       <div className="fixed inset-0" aria-label="Close dialog" onClick={onClose} />
-      <section ref={dialogRef} className={`relative bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-10 w-full ${size === 'sm' ? 'max-w-md' : size === 'lg' ? 'max-w-2xl' : 'max-w-xl'}`}>
+      <section ref={dialogRef} className={`relative bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-10 w-full ${size === 'sm' ? 'max-w-md' : size === 'lg' ? 'max-w-2xl' : size === 'xl' ? 'max-w-5xl' : size === '2xl' || size === 'full' ? 'max-w-6xl' : 'max-w-xl'}`}>
         <header className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h2 id="erp-modal-title" className="text-base font-bold text-slate-900 dark:text-white">{title}</h2>

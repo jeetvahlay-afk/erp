@@ -3,6 +3,8 @@ import {
   ArrowLeft,
   Banknote,
   Briefcase,
+  Eye,
+  EyeOff,
   GraduationCap,
   ImagePlus,
   Plus,
@@ -34,6 +36,8 @@ const AddEmployee = () => {
   const [preview, setPreview] = useState('');
   const [allowedRoutes] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -365,25 +369,47 @@ const AddEmployee = () => {
                   <label className={labelClass}>
                     Password <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="password"
-                    className={inputClass}
-                    value={form.password}
-                    onChange={(e) => setField('password', e.target.value)}
-                    placeholder="Min 8 characters with letters & numbers"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      className={`${inputClass} pr-10`}
+                      value={form.password}
+                      onChange={(e) => setField('password', e.target.value)}
+                      placeholder="Min 8 characters with letters & numbers"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className={labelClass}>
                     Confirm Password <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="password"
-                    className={inputClass}
-                    value={form.confirmPassword}
-                    onChange={(e) => setField('confirmPassword', e.target.value)}
-                    placeholder="Re-type password"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      className={`${inputClass} pr-10`}
+                      value={form.confirmPassword}
+                      onChange={(e) => setField('confirmPassword', e.target.value)}
+                      placeholder="Re-type password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className={labelClass}>Phone Number</label>

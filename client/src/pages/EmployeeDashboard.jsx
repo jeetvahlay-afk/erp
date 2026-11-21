@@ -55,6 +55,12 @@ const EmployeeDashboard = () => {
   const leaves = data?.leaves || {};
   const isPunchedIn = Boolean(attendance?.today?.loginTime && !attendance?.today?.logoutTime);
   const isShiftCompleted = Boolean(attendance?.today?.loginTime && attendance?.today?.logoutTime);
+  const todayHours = typeof attendance?.today?.totalHours === 'number'
+    ? attendance.today.totalHours
+    : (attendance?.today?.loginTime && attendance?.today?.logoutTime
+        ? Math.max(0, (new Date(attendance.today.logoutTime).getTime() - new Date(attendance.today.loginTime).getTime()) / 3600000)
+        : 0);
+  const isEarlyCheckout = Boolean(isShiftCompleted && (todayHours < 7 || attendance?.today?.status === 'Half Day'));
 
   const punch = async () => {
     if (isShiftCompleted) {
@@ -227,7 +233,9 @@ const EmployeeDashboard = () => {
               <span
                 className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                   isShiftCompleted
-                    ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60'
+                    ? isEarlyCheckout
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/60'
+                      : 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60'
                     : isPunchedIn
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/60'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
@@ -236,13 +244,13 @@ const EmployeeDashboard = () => {
                 <span
                   className={`w-2 h-2 rounded-full ${
                     isShiftCompleted
-                      ? 'bg-blue-500'
+                      ? isEarlyCheckout ? 'bg-amber-500' : 'bg-blue-500'
                       : isPunchedIn
                       ? 'bg-emerald-500 animate-pulse'
                       : 'bg-slate-400'
                   }`}
                 />
-                <span>{isShiftCompleted ? 'Shift Completed' : isPunchedIn ? 'On Shift' : 'Off Shift'}</span>
+                <span>{isShiftCompleted ? (isEarlyCheckout ? 'Early Checkout (Half Day)' : 'Shift Completed') : isPunchedIn ? 'On Shift' : 'Off Shift'}</span>
               </span>
             </div>
 
@@ -260,7 +268,7 @@ const EmployeeDashboard = () => {
                 </div>
                 {isShiftCompleted && (
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-                    Shift ended for today. Re-entry is locked until next scheduled shift.
+                    {isEarlyCheckout ? 'Checked out under 7 hours (recorded as Half Day).' : 'Shift ended for today. Re-entry is locked until next scheduled shift.'}
                   </p>
                 )}
               </div>

@@ -16,7 +16,8 @@ const ADMIN_UPDATABLE_FIELDS = [
   'dob', 'gender', 'bloodGroup', 'role', 'firstName', 'lastName', 'name', 'allowedRoutes', 'phone',
   'baseSalary', 'shift', 'department', 'documents', 'employeeId', 'permissions', 'designation',
   'joiningDate', 'employmentType', 'company', 'profileImage', 'bio', 'reportingManager',
-  'bankInformation', 'familyInformation', 'education', 'experience',
+  'bankInformation', 'familyInformation', 'education', 'experience', 'separationType', 'exitDate',
+  'exitReason', 'isActive', 'reactivationDate', 'reactivationReason', 'statusHistory',
 ];
 
 const APPEARANCE_KEYS = new Set([
@@ -246,9 +247,49 @@ const updateUserStatus = asyncHandler(async (req, res) => {
   }
 
   targetUser.isActive = req.body.isActive;
-  if (!targetUser.isActive) targetUser.tokenVersion += 1;
+  if (!Array.isArray(targetUser.statusHistory)) {
+    targetUser.statusHistory = [];
+  }
+
+  if (!targetUser.isActive) {
+    targetUser.tokenVersion += 1;
+    targetUser.separationType = req.body.separationType ? String(req.body.separationType).trim() : 'Deactivated';
+    targetUser.exitDate = req.body.exitDate ? new Date(req.body.exitDate) : new Date();
+    targetUser.exitReason = req.body.exitReason
+      ? String(req.body.exitReason).trim()
+      : (req.body.reason ? String(req.body.reason).trim() : '');
+
+    targetUser.statusHistory.push({
+      action: 'deactivated',
+      date: targetUser.exitDate,
+      separationType: targetUser.separationType,
+      reason: targetUser.exitReason,
+      performedBy: req.user._id,
+      performedByName: req.user.name,
+    });
+  } else {
+    targetUser.reactivationDate = req.body.reactivationDate ? new Date(req.body.reactivationDate) : new Date();
+    targetUser.reactivationReason = req.body.reactivationReason
+      ? String(req.body.reactivationReason).trim()
+      : (req.body.reason ? String(req.body.reason).trim() : '');
+
+    targetUser.statusHistory.push({
+      action: 'reactivated',
+      date: targetUser.reactivationDate,
+      reason: targetUser.reactivationReason,
+      performedBy: req.user._id,
+      performedByName: req.user.name,
+    });
+  }
   await targetUser.save({ validateBeforeSave: false });
-  await writeAuditLog(req, 'user.status_changed', 'User', targetUser._id, { isActive: targetUser.isActive });
+  await writeAuditLog(req, 'user.status_changed', 'User', targetUser._id, {
+    isActive: targetUser.isActive,
+    separationType: targetUser.separationType,
+    exitDate: targetUser.exitDate,
+    exitReason: targetUser.exitReason,
+    reactivationDate: targetUser.reactivationDate,
+    reactivationReason: targetUser.reactivationReason,
+  });
   res.json({ message: 'User status updated successfully', user: targetUser.toJSON() });
 });
 

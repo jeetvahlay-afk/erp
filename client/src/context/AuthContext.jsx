@@ -16,6 +16,9 @@ export const AuthProvider = ({ children }) => {
     hasRecord: false,
     isPunchedIn: false,
     isShiftCompleted: false,
+    isEarlyCheckout: false,
+    totalHours: 0,
+    status: null,
     loginTime: null,
     logoutTime: null,
   });
@@ -25,11 +28,28 @@ export const AuthProvider = ({ children }) => {
   const fetchAttendanceStatus = useCallback(async () => {
     try {
       const { data } = await api.get('/api/attendance/shift-status');
+      const isShiftCompleted = Boolean(data?.isShiftCompleted);
+      const totalHours = typeof data?.totalHours === 'number'
+        ? data.totalHours
+        : (data?.loginTime && data?.logoutTime
+            ? Math.max(0, (new Date(data.logoutTime).getTime() - new Date(data.loginTime).getTime()) / 3600000)
+            : 0);
+      const isEarlyCheckout = Boolean(
+        data?.isEarlyCheckout ?? (isShiftCompleted && (totalHours < 7 || data?.status === 'Half Day'))
+      );
       setAttendanceStatus({
         loading: false,
         hasRecord: Boolean(data?.hasRecord),
         isPunchedIn: Boolean(data?.isPunchedIn),
-        isShiftCompleted: Boolean(data?.isShiftCompleted),
+        isShiftCompleted,
+        isEarlyCheckout,
+        totalHours,
+        grossHours: data?.grossHours ?? totalHours,
+        status: data?.status || null,
+        isLateCheckIn: Boolean(data?.isLateCheckIn),
+        isLatePenalty: Boolean(data?.isLatePenalty),
+        penaltyDeductionHours: data?.penaltyDeductionHours || 0,
+        lateCountInMonth: data?.lateCountInMonth || 0,
         loginTime: data?.loginTime || null,
         logoutTime: data?.logoutTime || null,
       });
@@ -123,6 +143,9 @@ export const AuthProvider = ({ children }) => {
         hasRecord: false,
         isPunchedIn: false,
         isShiftCompleted: false,
+        isEarlyCheckout: false,
+        totalHours: 0,
+        status: null,
         loginTime: null,
         logoutTime: null,
       });
@@ -203,6 +226,9 @@ export const AuthProvider = ({ children }) => {
         hasRecord: false,
         isPunchedIn: false,
         isShiftCompleted: false,
+        isEarlyCheckout: false,
+        totalHours: 0,
+        status: null,
         loginTime: null,
         logoutTime: null,
       });

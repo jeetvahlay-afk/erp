@@ -22,11 +22,13 @@ import {
   Info,
   LayoutGrid,
   Mail,
+  Moon,
   Phone,
   Power,
   RotateCcw,
   ShieldAlert,
   Store,
+  Sun,
   Trash2,
   Upload,
   User,
@@ -46,10 +48,82 @@ import {
   formatTime,
 } from '../components/ui/EnterpriseUI';
 
+const displayTime = (value) =>
+  value
+    ? new Date(`2000-01-01T${value}`).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : '—';
+
+const calculateShiftDuration = (shift) => {
+  if (!shift?.startTime || !shift?.endTime) return 0;
+  const [sh, sm] = shift.startTime.split(':').map(Number);
+  const [eh, em] = shift.endTime.split(':').map(Number);
+  let minutes = eh * 60 + em - (sh * 60 + sm);
+  const isNight = Boolean(shift.isNightShift || (shift.startTime && shift.endTime && shift.endTime <= shift.startTime));
+  if (minutes <= 0 || isNight) minutes += 1440;
+  return Number((minutes / 60).toFixed(1));
+};
+
+const getStatusBadge = (emp) => {
+  if (emp?.isActive) {
+    return {
+      label: 'Active',
+      bg: 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
+      dot: 'bg-emerald-500',
+    };
+  }
+  const reason = (emp?.separationType || emp?.exitReason || 'Inactive').trim();
+  const lower = reason.toLowerCase();
+  if (lower.includes('terminat')) {
+    return {
+      label: 'Terminated',
+      bg: 'bg-rose-50 text-rose-700 border-rose-200/60',
+      dot: 'bg-rose-500',
+    };
+  }
+  if (lower.includes('absco')) {
+    return {
+      label: 'Absconded',
+      bg: 'bg-purple-50 text-purple-700 border-purple-200/60',
+      dot: 'bg-purple-500',
+    };
+  }
+  if (lower.includes('resign')) {
+    return {
+      label: 'Resigned',
+      bg: 'bg-amber-50 text-amber-700 border-amber-200/60',
+      dot: 'bg-amber-500',
+    };
+  }
+  if (lower.includes('retire')) {
+    return {
+      label: 'Retired',
+      bg: 'bg-sky-50 text-sky-700 border-sky-200/60',
+      dot: 'bg-sky-500',
+    };
+  }
+  if (lower.includes('contract')) {
+    return {
+      label: 'Contract Ended',
+      bg: 'bg-slate-100 text-slate-700 border-slate-200/60',
+      dot: 'bg-slate-500',
+    };
+  }
+  return {
+    label: reason || 'Inactive',
+    bg: 'bg-rose-50 text-rose-700 border-rose-200/60',
+    dot: 'bg-rose-500',
+  };
+};
+
 const EmployeeDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [employee, setEmployee] = useState(null);
+  const [shifts, setShifts] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [payrolls, setPayrolls] = useState([]);
@@ -58,15 +132,30 @@ const EmployeeDetails = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const docInputRef = useRef(null);
   const [offboardOpen, setOffboardOpen] = useState(false);
-  const [offboardForm, setOffboardForm] = useState({ exitDate: '', reason: '', separationType: 'Resignation' });
+  const [offboardForm, setOffboardForm] = useState({
+    exitDate: new Date().toISOString().slice(0, 10),
+    reason: '',
+    separationType: 'Resigned',
+  });
   const [offboarding, setOffboarding] = useState(false);
+
+  const [reactivateOpen, setReactivateOpen] = useState(false);
+  const [reactivateForm, setReactivateForm] = useState({
+    reactivationDate: new Date().toISOString().slice(0, 10),
+    reason: '',
+  });
+  const [reactivating, setReactivating] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const employeeResponse = await api.get(`/api/users/${id}`);
+      const [employeeResponse, shiftResponse] = await Promise.all([
+        api.get(`/api/users/${id}`),
+        api.get('/api/settings/shifts').catch(() => ({ data: [] })),
+      ]);
       setEmployee(employeeResponse.data);
+      setShifts(asArray(shiftResponse.data));
 
       try {
         const attendanceResponse = await api.get(`/api/attendance/user/${id}`);
@@ -151,36 +240,51 @@ const EmployeeDetails = () => {
       feedback.error('Exit date is required.');
       return;
     }
+    if (!offboardForm.reason.trim()) {
+      feedback.error('Please enter the reason for deactivation.');
+      return;
+    }
     setOffboarding(true);
     try {
       await api.patch(`/api/users/${id}/status`, {
         isActive: false,
         exitDate: offboardForm.exitDate,
-        exitReason: offboardForm.reason,
+        exitReason: offboardForm.reason.trim(),
         separationType: offboardForm.separationType,
       });
-      feedback.success(`${employee.name} has been offboarded successfully.`);
+      feedback.success(`${employee.name} has been deactivated.`);
       setOffboardOpen(false);
       load();
     } catch (err) {
-      feedback.error(getApiError(err, 'Unable to offboard employee'));
+      feedback.error(getApiError(err, 'Unable to deactivate employee'));
     } finally {
       setOffboarding(false);
     }
   };
 
   const reactivate = async () => {
-    const ok = await feedback.confirm(`Reactivate ${employee?.name}?`, {
-      title: 'Reactivate Employee',
-      confirmLabel: 'Reactivate',
-    });
-    if (!ok) return;
+    if (!reactivateForm.reactivationDate) {
+      feedback.error('Reactivation date is required.');
+      return;
+    }
+    if (!reactivateForm.reason.trim()) {
+      feedback.error('Please enter the reason for reactivation.');
+      return;
+    }
+    setReactivating(true);
     try {
-      await api.patch(`/api/users/${id}/status`, { isActive: true });
+      await api.patch(`/api/users/${id}/status`, {
+        isActive: true,
+        reactivationDate: reactivateForm.reactivationDate,
+        reactivationReason: reactivateForm.reason.trim(),
+      });
       feedback.success(`${employee.name} has been reactivated.`);
+      setReactivateOpen(false);
       load();
     } catch (err) {
       feedback.error(getApiError(err, 'Unable to reactivate employee'));
+    } finally {
+      setReactivating(false);
     }
   };
 
@@ -200,6 +304,11 @@ const EmployeeDetails = () => {
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     return parts[0].slice(0, 2).toUpperCase();
   }, [employee?.name]);
+
+  const employeeShift = useMemo(() => {
+    if (!employee?.shift || !shifts.length) return null;
+    return shifts.find((s) => s.id === employee.shift || s._id === employee.shift) || null;
+  }, [employee?.shift, shifts]);
 
   if (loading) return <LoadingState label="Loading employee profile…" />;
   if (error) return <ErrorState message={error} retry={load} />;
@@ -237,21 +346,31 @@ const EmployeeDetails = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setOffboardForm({ exitDate: '', reason: '', separationType: 'Resignation' });
+                  setOffboardForm({
+                    exitDate: new Date().toISOString().slice(0, 10),
+                    reason: '',
+                    separationType: 'Resigned',
+                  });
                   setOffboardOpen(true);
                 }}
                 className="border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 rounded-xl px-3 py-1.5 text-xs font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer transition"
               >
                 <Power size={14} />
-                <span>Offboard</span>
+                <span>Deactivate</span>
               </button>
             ) : (
               <button
                 type="button"
-                onClick={reactivate}
+                onClick={() => {
+                  setReactivateForm({
+                    reactivationDate: new Date().toISOString().slice(0, 10),
+                    reason: '',
+                  });
+                  setReactivateOpen(true);
+                }}
                 className="border border-emerald-200 bg-white hover:bg-emerald-50 text-emerald-600 rounded-xl px-3 py-1.5 text-xs font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer transition"
               >
-                <RotateCcw size={14} />
+                <CheckCircle2 size={14} />
                 <span>Reactivate</span>
               </button>
             )}
@@ -306,21 +425,22 @@ const EmployeeDetails = () => {
 
               {/* Status Pill Badge */}
               <div className="mt-2.5">
-                <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
-                    employee.isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-rose-50 text-rose-700 border border-rose-200/60'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      employee.isActive ? 'bg-emerald-500' : 'bg-rose-500'
-                    }`}
-                  />
-                  <span>{employee.isActive ? 'Active' : 'Inactive'}</span>
-                </span>
-                {!employee.isActive && employee.exitDate && (
+                {(() => {
+                  const badge = getStatusBadge(employee);
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${badge.bg}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+                      <span>{badge.label}</span>
+                    </span>
+                  );
+                })()}
+                {!employee.isActive && (
                   <p className="text-xs text-rose-500 font-medium mt-1">
-                    Exited {formatDate(employee.exitDate)}
+                    {employee.separationType || 'Separated'}
+                    {employee.exitDate ? ` · Exited ${formatDate(employee.exitDate)}` : ''}
+                    {employee.exitReason ? ` (${employee.exitReason})` : ''}
                   </p>
                 )}
               </div>
@@ -349,6 +469,31 @@ const EmployeeDetails = () => {
                     Employment Type
                   </span>
                   <span className="font-semibold text-slate-900">{employee.employmentType || 'Full Time'}</span>
+                </div>
+
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="flex items-center gap-2 text-slate-500">
+                    <Clock size={15} className="text-slate-400 shrink-0" />
+                    Shift Schedule
+                  </span>
+                  <span className="font-semibold text-slate-900 text-right">
+                    {employeeShift ? (
+                      <span className="inline-flex items-center gap-1.5 capitalize">
+                        <span>{employeeShift.shiftName}</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            employeeShift.isNightShift || (employeeShift.startTime && employeeShift.endTime && employeeShift.endTime <= employeeShift.startTime)
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                          }`}
+                        >
+                          {employeeShift.isNightShift || (employeeShift.startTime && employeeShift.endTime && employeeShift.endTime <= employeeShift.startTime) ? 'Night' : 'Day'}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-normal">Not Assigned</span>
+                    )}
+                  </span>
                 </div>
 
                 <div className="flex items-center justify-between py-2.5">
@@ -451,6 +596,128 @@ const EmployeeDetails = () => {
                 <span className="text-slate-500">Phone</span>
                 <span className="font-semibold text-slate-900">{employee.emergencyPhone || '—'}</span>
               </div>
+            </div>
+          </div>
+
+          {/* Card 4: Employment Status & Action */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-5 space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                <ShieldAlert size={15} className={employee.isActive ? 'text-emerald-600' : 'text-rose-600'} />
+                <span>Account Status</span>
+              </div>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                  employee.isActive
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                    : 'bg-rose-50 text-rose-700 border border-rose-200/60'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${employee.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                {employee.isActive ? 'Active' : (employee.separationType || 'Deactivated')}
+              </span>
+            </div>
+
+            {/* Deactivation Reason Details */}
+            {(!employee.isActive || employee.exitReason || employee.separationType) && (
+              <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200/60 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-rose-800 font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <Power size={13} className="text-rose-600" />
+                    Deactivation Reason
+                  </span>
+                  <span className="text-[10px] font-medium text-rose-600">
+                    {formatDate(employee.exitDate)}
+                  </span>
+                </div>
+                {employee.separationType && (
+                  <div className="text-slate-700">
+                    <span className="text-slate-500 font-medium">Type: </span>
+                    <span className="font-semibold text-rose-900">{employee.separationType}</span>
+                  </div>
+                )}
+                <div className="text-slate-700">
+                  <span className="text-slate-500 font-medium">Reason: </span>
+                  <span className="italic text-slate-800">{employee.exitReason || 'No notes provided'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Reactivation Reason Details */}
+            {employee.reactivationReason && (
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/60 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-emerald-800 font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    Reactivation Reason
+                  </span>
+                  <span className="text-[10px] font-medium text-emerald-600">
+                    {formatDate(employee.reactivationDate)}
+                  </span>
+                </div>
+                <div className="text-slate-700">
+                  <span className="text-slate-500 font-medium">Reason: </span>
+                  <span className="italic text-slate-800">{employee.reactivationReason}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Status History (if multiple transitions exist) */}
+            {employee.statusHistory && employee.statusHistory.length > 1 && (
+              <details className="text-[11px] text-slate-500 pt-1">
+                <summary className="cursor-pointer font-semibold text-slate-600 hover:text-slate-900 select-none">
+                  View Status History ({employee.statusHistory.length} events)
+                </summary>
+                <div className="mt-2 space-y-2 border-l-2 border-slate-200 pl-2.5">
+                  {employee.statusHistory.slice().reverse().map((h, idx) => (
+                    <div key={idx} className="space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className={`font-bold capitalize ${h.action === 'deactivated' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {h.action}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{formatDate(h.date)}</span>
+                      </div>
+                      {h.reason && <p className="italic text-slate-600 text-[10px]">{h.reason}</p>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Action Button: Deactivate or Reactivate */}
+            <div className="pt-1">
+              {employee.isActive ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOffboardForm({
+                      exitDate: new Date().toISOString().slice(0, 10),
+                      reason: '',
+                      separationType: 'Resigned',
+                    });
+                    setOffboardOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 text-xs font-semibold shadow-2xs transition cursor-pointer"
+                >
+                  <Power size={14} className="text-rose-600" />
+                  <span>Deactivate Employee</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReactivateForm({
+                      reactivationDate: new Date().toISOString().slice(0, 10),
+                      reason: '',
+                    });
+                    setReactivateOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                >
+                  <CheckCircle2 size={14} />
+                  <span>Reactivate Employee</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -581,6 +848,118 @@ const EmployeeDetails = () => {
                   </div>
                   <ChevronRight size={15} className="text-slate-400 group-hover:text-blue-600 transition shrink-0" />
                 </div>
+              </div>
+
+              {/* Assigned Shift Schedule Card */}
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-5">
+                <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <Clock size={15} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-900">Shift Details</h4>
+                      <p className="text-[11px] text-slate-500">
+                        Operational shift timings, daily duration target, and attendance grace policy
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/manage-shift')}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer transition"
+                  >
+                    <span>Manage Shifts</span>
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+
+                {employeeShift ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                    {/* Shift Name & Classification */}
+                    <div className="p-3 bg-slate-50/80 border border-slate-100 rounded-xl">
+                      <span className="text-[11px] text-slate-500 font-medium block">Shift Name</span>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {employeeShift.isNightShift || (employeeShift.startTime && employeeShift.endTime && employeeShift.endTime <= employeeShift.startTime) ? (
+                          <Moon size={14} className="text-indigo-600 shrink-0" />
+                        ) : (
+                          <Sun size={14} className="text-amber-500 shrink-0" />
+                        )}
+                        <strong className="text-xs font-bold text-slate-900 truncate capitalize">
+                          {employeeShift.shiftName}
+                        </strong>
+                      </div>
+                      <span
+                        className={`inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          employeeShift.isNightShift || (employeeShift.startTime && employeeShift.endTime && employeeShift.endTime <= employeeShift.startTime)
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                        }`}
+                      >
+                        {employeeShift.isNightShift || (employeeShift.startTime && employeeShift.endTime && employeeShift.endTime <= employeeShift.startTime)
+                          ? 'Night Shift'
+                          : 'Day Shift'}
+                      </span>
+                    </div>
+
+                    {/* Working Hours */}
+                    <div className="p-3 bg-slate-50/80 border border-slate-100 rounded-xl">
+                      <span className="text-[11px] text-slate-500 font-medium block">Working Hours</span>
+                      <strong className="text-xs font-bold text-slate-900 block mt-1">
+                        {displayTime(employeeShift.startTime)} – {displayTime(employeeShift.endTime)}
+                      </strong>
+                      <span className="text-[10px] text-slate-500 font-medium block mt-1.5">
+                        Scheduled operational window
+                      </span>
+                    </div>
+
+                    {/* Daily Target Duration */}
+                    <div className="p-3 bg-slate-50/80 border border-slate-100 rounded-xl">
+                      <span className="text-[11px] text-slate-500 font-medium block">Daily Target</span>
+                      <strong className="text-xs font-bold text-slate-900 block mt-1">
+                        {calculateShiftDuration(employeeShift)} Hours
+                      </strong>
+                      <span className="text-[10px] text-slate-500 font-medium block mt-1.5">
+                        Required shift duration
+                      </span>
+                    </div>
+
+                    {/* Grace Period */}
+                    <div className="p-3 bg-slate-50/80 border border-slate-100 rounded-xl">
+                      <span className="text-[11px] text-slate-500 font-medium block">Grace Period</span>
+                      <strong className="text-xs font-bold text-slate-900 block mt-1">
+                        {employeeShift.gracePeriod !== undefined && employeeShift.gracePeriod !== null
+                          ? employeeShift.gracePeriod
+                          : 15}{' '}
+                        Minutes
+                      </strong>
+                      <span className="text-[10px] text-emerald-600 font-medium block mt-1.5">
+                        Punch-in late allowance
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-xs">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                        <Clock size={16} />
+                      </div>
+                      <div>
+                        <strong className="font-semibold text-slate-800 block">No specific shift assigned</strong>
+                        <span className="text-slate-500 text-[11px]">
+                          Employee is currently on standard flexible working hours.
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/manage-shift')}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition cursor-pointer shrink-0"
+                    >
+                      Assign Shift
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Row: Attendance & Leave (Left) + Experience (Right) */}
@@ -1015,17 +1394,18 @@ const EmployeeDetails = () => {
         </div>
       </div>
 
-      {/* Offboard Employee Modal */}
+      {/* Deactivate Employee Modal */}
       <Modal
         open={offboardOpen}
-        title="Offboard Employee"
-        subtitle={`Mark ${employee?.name} as separated from the organization.`}
-        onClose={() => setOffboardOpen(false)}
+        title="Deactivate Employee"
+        subtitle={`Mark ${employee?.name} as inactive/separated from the organization.`}
+        onClose={() => !offboarding && setOffboardOpen(false)}
         size="sm"
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
             <button
               type="button"
+              disabled={offboarding}
               onClick={() => setOffboardOpen(false)}
               className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
             >
@@ -1037,7 +1417,7 @@ const EmployeeDetails = () => {
               onClick={offboard}
               className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
             >
-              {offboarding ? 'Processing…' : 'Confirm Offboard'}
+              {offboarding ? 'Processing…' : 'Confirm Deactivation'}
             </button>
           </div>
         }
@@ -1045,24 +1425,33 @@ const EmployeeDetails = () => {
         <div className="space-y-4 text-xs">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Separation Type
+              Separation Type / Deactivation Type
             </label>
             <select
               value={offboardForm.separationType}
               onChange={(e) => setOffboardForm({ ...offboardForm, separationType: e.target.value })}
               className="w-full px-3.5 py-2 border border-slate-200/90 rounded-xl text-xs bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500"
             >
-              {['Resignation', 'Termination', 'Retirement', 'Contract End', 'Absconding', 'Other'].map(
-                (t) => (
-                  <option key={t}>{t}</option>
-                )
-              )}
+              {[
+                'Resigned',
+                'Terminated',
+                'Absconded',
+                'Retired',
+                'Contract Ended',
+                'Personal Reasons',
+                'Performance Issue',
+                'Other',
+              ].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
             </select>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Exit Date <span className="text-rose-500">*</span>
+              Deactivation Date <span className="text-rose-500">*</span>
             </label>
             <input
               type="date"
@@ -1074,13 +1463,13 @@ const EmployeeDetails = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Reason / Remarks
+              Reason / Remarks <span className="text-rose-500">*</span>
             </label>
             <textarea
               rows={3}
               value={offboardForm.reason}
               onChange={(e) => setOffboardForm({ ...offboardForm, reason: e.target.value })}
-              placeholder="Optional notes about the separation…"
+              placeholder="Enter the specific reason why this employee is being deactivated…"
               className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 resize-none"
             />
           </div>
@@ -1088,7 +1477,70 @@ const EmployeeDetails = () => {
           <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200/80 text-xs text-rose-700 leading-relaxed flex items-start gap-2.5">
             <ShieldAlert size={16} className="text-rose-500 shrink-0 mt-0.5" />
             <span>
-              This will mark the employee as <strong>Inactive</strong> and revoke their system access. This action can be reversed at any time.
+              This will mark the employee as <strong>Inactive</strong> and revoke their system access. You can reactivate them at any time.
+            </span>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Reactivate Employee Modal */}
+      <Modal
+        open={reactivateOpen}
+        title="Reactivate Employee"
+        subtitle={`Restore ${employee?.name} as an active team member.`}
+        onClose={() => !reactivating && setReactivateOpen(false)}
+        size="sm"
+        footer={
+          <div className="flex items-center justify-end gap-2 w-full">
+            <button
+              type="button"
+              disabled={reactivating}
+              onClick={() => setReactivateOpen(false)}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={reactivating}
+              onClick={reactivate}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
+            >
+              {reactivating ? 'Reactivating…' : 'Confirm Reactivation'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Reactivation Date <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="date"
+              value={reactivateForm.reactivationDate}
+              onChange={(e) => setReactivateForm({ ...reactivateForm, reactivationDate: e.target.value })}
+              className="w-full px-3.5 py-2 border border-slate-200/90 rounded-xl text-xs bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Reason for Reactivation <span className="text-rose-500">*</span>
+            </label>
+            <textarea
+              rows={3}
+              value={reactivateForm.reason}
+              onChange={(e) => setReactivateForm({ ...reactivateForm, reason: e.target.value })}
+              placeholder="Enter the reason why this employee is being reactivated (e.g. Rehired, contract renewed, returned from sabbatical)…"
+              className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
+            />
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-xs text-emerald-800 leading-relaxed flex items-start gap-2.5">
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+            <span>
+              This will restore the employee as <strong>Active</strong>, restoring their system login and access across modules.
             </span>
           </div>
         </div>

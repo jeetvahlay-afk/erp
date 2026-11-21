@@ -227,13 +227,30 @@ const EmployeeAttendance = () => {
                   <td className="py-2.5 px-2.5 text-slate-600 dark:text-slate-300">{formatTime(row.loginTime)}</td>
                   <td className="py-2.5 px-2.5 text-slate-600 dark:text-slate-300">{formatTime(row.logoutTime)}</td>
                   <td className="py-2.5 px-2.5 font-semibold text-slate-800 dark:text-slate-200">
-                    {row.totalHours ? `${Number(row.totalHours).toFixed(2)}h` : '—'}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{row.totalHours ? `${Number(row.totalHours).toFixed(2)}h` : '—'}</span>
+                      {row.isLatePenalty && (
+                        <span
+                          className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-800"
+                          title="3rd late check-in: 4.5 hours cut from working hours"
+                        >
+                          -4.5h cut
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5 px-2.5 text-slate-600 dark:text-slate-300">
                     {row.totalBreakDuration ? `${row.totalBreakDuration} mins` : '0 mins'}
                   </td>
                   <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
-                    <StatusBadge>{row.status}</StatusBadge>
+                    {row.isLatePenalty ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                        Half Day (3rd Late)
+                      </span>
+                    ) : (
+                      <StatusBadge tone={row.status === 'Late' ? 'warning' : undefined}>{row.status}</StatusBadge>
+                    )}
                   </td>
                 </tr>
               ))}

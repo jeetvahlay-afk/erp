@@ -17,7 +17,6 @@ const AddEmployee = lazy(() => import('./pages/AddEmployee'));
 const EditEmployee = lazy(() => import('./pages/EditEmployee'));
 const ManageRoles = lazy(() => import('./pages/ManageRoles'));
 const EmployeeDetails = lazy(() => import('./pages/EmployeeDetails'));
-const MailConfig = lazy(() => import('./pages/MailConfig'));
 const AccountsConfig = lazy(() => import('./pages/AccountsConfig'));
 const ConfigurationList = lazy(() => import('./pages/ConfigurationList'));
 const ManageShift = lazy(() => import('./pages/ManageShift'));
@@ -41,8 +40,6 @@ const ManageDepartments = lazy(() => import('./pages/ManageDepartments'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const EmployeeWorkspacePage = lazy(() => import('./pages/EmployeeWorkspacePage'));
 const TasksPage = lazy(() => import('./pages/TasksPage'));
-const MailboxPage = lazy(() => import('./pages/MailboxPage'));
-const MailSettings = lazy(() => import('./pages/MailSettings'));
 const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'));
 const MyWorkReport = lazy(() => import('./pages/MyWorkReport'));
 const ManageWorkReports = lazy(() => import('./pages/ManageWorkReports'));
@@ -68,7 +65,6 @@ const App = () => (
           <Route path="leaves" element={<Leaves />} />
           <Route path="my-payroll" element={<MyPayroll />} />
           <Route path="take-break" element={<TakeBreak />} />
-          <Route path="my-mail" element={<EmployeeWorkspacePage type="mail" />} />
           <Route path="my-documents" element={<EmployeeWorkspacePage type="documents" />} />
           <Route path="announcements" element={<EmployeeWorkspacePage type="announcements" />} />
           <Route path="birthdays" element={<EmployeeWorkspacePage type="birthdays" />} />
@@ -80,11 +76,6 @@ const App = () => (
           <Route path="tasks/today" element={<TasksPage view="today" />} />
           <Route path="tasks/calendar" element={<TasksPage view="calendar" />} />
           <Route path="tasks/kanban" element={<TasksPage view="kanban" />} />
-          <Route path="mail/inbox" element={<MailboxPage folder="inbox" />} />
-          <Route path="mail/compose" element={<MailboxPage folder="inbox" composeInitially />} />
-          <Route path="mail/sent" element={<MailboxPage folder="sent" />} />
-          <Route path="mail/drafts" element={<MailboxPage folder="draft" />} />
-          <Route path="mail/settings" element={<MailSettings />} />
           <Route path="my-work-report" element={<MyWorkReport />} />
 
           <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} allowedPermissions={['employees.read']} />}>
@@ -140,7 +131,6 @@ const App = () => (
           <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} allowedPermissions={['settings.read']} />}>
             <Route path="manage-routes" element={<ManageRoutes />} />
             <Route path="configurations" element={<ConfigurationList />} />
-            <Route path="mail-config" element={<MailConfig />} />
             <Route path="accounts-config" element={<AccountsConfig />} />
             <Route path="manage-shift" element={<ManageShift />} />
             <Route path="break-config" element={<BreakConfig />} />

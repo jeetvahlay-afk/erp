@@ -40,6 +40,10 @@ const blank = {
   employmentType: 'Full Time',
   company: '',
   shift: '',
+  isActive: true,
+  separationType: '',
+  exitDate: '',
+  exitReason: '',
   bio: '',
   bankInformation: {
     bankName: '',
@@ -91,6 +95,10 @@ const EditEmployee = () => {
         lastName: employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '',
         dob: dateInput(employee.dob),
         joiningDate: dateInput(employee.joiningDate),
+        isActive: employee.isActive !== false,
+        separationType: employee.separationType || '',
+        exitDate: dateInput(employee.exitDate),
+        exitReason: employee.exitReason || '',
         bankInformation: {
           bankName: employee.bankInformation?.bankName || '',
           accountName: employee.bankInformation?.accountName || '',
@@ -536,6 +544,62 @@ const EditEmployee = () => {
                     onChange={(e) => setField('company', e.target.value)}
                   />
                 </div>
+                <div>
+                  <label className={labelClass}>Employment Status</label>
+                  <select
+                    className={inputClass}
+                    value={form.isActive ? 'Active' : (form.separationType || 'Inactive')}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Active') {
+                        setForm((prev) => ({
+                          ...prev,
+                          isActive: true,
+                          separationType: '',
+                          exitDate: '',
+                          exitReason: '',
+                        }));
+                      } else {
+                        setForm((prev) => ({
+                          ...prev,
+                          isActive: false,
+                          separationType: val,
+                          exitDate: prev.exitDate || new Date().toISOString().slice(0, 10),
+                        }));
+                      }
+                    }}
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Resigned">Resigned</option>
+                    <option value="Terminated">Terminated</option>
+                    <option value="Absconded">Absconded</option>
+                    <option value="Retired">Retired</option>
+                    <option value="Contract Ended">Contract Ended</option>
+                    <option value="Inactive">Other Inactive</option>
+                  </select>
+                </div>
+                {!form.isActive && (
+                  <div>
+                    <label className={labelClass}>Exit Date</label>
+                    <input
+                      type="date"
+                      className={inputClass}
+                      value={form.exitDate || ''}
+                      onChange={(e) => setField('exitDate', e.target.value)}
+                    />
+                  </div>
+                )}
+                {!form.isActive && (
+                  <div className="sm:col-span-2">
+                    <label className={labelClass}>Separation Reason / Remarks</label>
+                    <input
+                      className={inputClass}
+                      value={form.exitReason || ''}
+                      onChange={(e) => setField('exitReason', e.target.value)}
+                      placeholder="e.g. Absconded without notice, Resigned due to relocation..."
+                    />
+                  </div>
+                )}
                 <div className="sm:col-span-2">
                   <label className={labelClass}>Biography / About Employee</label>
                   <textarea

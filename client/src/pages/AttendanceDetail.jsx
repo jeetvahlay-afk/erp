@@ -455,14 +455,18 @@ const AttendanceDetail = () => {
             <div className="flex items-center gap-2">
               <StatusBadge
                 tone={
-                  Number(selectedAttendance?.totalHours || 0) >= 7
+                  selectedAttendance?.isLatePenalty
+                    ? 'danger'
+                    : Number(selectedAttendance?.totalHours || 0) >= 7
                     ? 'success'
                     : selectedAttendance
                     ? 'warning'
                     : 'info'
                 }
               >
-                {selectedAttendance?.status || 'No attendance'}
+                {selectedAttendance?.isLatePenalty
+                  ? 'Half Day (3rd Late Cut)'
+                  : selectedAttendance?.status || 'No attendance'}
               </StatusBadge>
               {selectedAttendance && (
                 <button
@@ -501,6 +505,11 @@ const AttendanceDetail = () => {
               </span>
               <p className="text-sm font-bold text-slate-900 mt-1">
                 {Number(selectedAttendance?.totalHours || 0).toFixed(2)} hrs
+                {selectedAttendance?.isLatePenalty && (
+                  <span className="block text-[11px] text-rose-600 font-medium">
+                    (-4.5h 3rd late penalty cut)
+                  </span>
+                )}
               </p>
             </div>
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">

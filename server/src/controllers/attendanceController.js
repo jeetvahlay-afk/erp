@@ -15,7 +15,7 @@ const resolveShiftDetails = async (user, date = new Date()) => {
   if (user?.shift) {
     const shiftSettings = await Settings.findOne({ type: 'shifts' }).lean();
     const shifts = shiftSettings?.config || [];
-    shift = shifts.find((s) => s.id === user.shift);
+    shift = shifts.find((s) => s.id === user.shift || s._id === user.shift);
   }
 
   const isNight = Boolean(
@@ -153,7 +153,10 @@ const populateActiveHours = async (records) => {
     const userBreaks = breaksByUser.get(String(record.user?._id || record.user)) || [];
     const grossMs = Math.max(0, now - new Date(record.loginTime));
     const breakMs = userBreaks.reduce((total, item) => total + Math.max(0, (item.endTime ? new Date(item.endTime) : now) - new Date(item.startTime)), 0);
-    record.totalHours = Math.max(0, grossMs - breakMs) / 3600000;
+    const grossWorkingHours = Math.max(0, grossMs - breakMs) / 3600000;
+    record.grossHours = grossWorkingHours;
+    const penalty = record.isLatePenalty ? (record.penaltyDeductionHours || 4.5) : 0;
+    record.totalHours = Math.max(0, grossWorkingHours - penalty);
   });
 
   return records;
@@ -233,6 +236,12 @@ const punchInOut = asyncHandler(async (req, res) => {
 
   const resolvedAction = action === 'auto' ? (!record?.loginTime ? 'in' : (!record.logoutTime ? 'out' : 'out')) : action;
 
+  let isLateCheckIn = false;
+  let lateMinutes = 0;
+  let isLatePenalty = false;
+  let penaltyDeductionHours = 0;
+  let lateCountInMonth = 0;
+
   if (resolvedAction === 'in') {
     if (record?.logoutTime) {
       throw new AppError('Shift has already ended for today. You cannot punch in again for this shift.', 400, 'SHIFT_ALREADY_COMPLETED');
@@ -246,24 +255,69 @@ const punchInOut = asyncHandler(async (req, res) => {
     let status = 'Present';
 
     if (shiftDetails.shiftStart) {
-      // Late if login is more than 15 minutes after shift start
-      const lateThreshold = new Date(shiftDetails.shiftStart.getTime() + 15 * 60 * 1000);
+      // Late if login is after shift start + configured grace period (defaults to 15 mins)
+      const graceMinutes = Number(shiftDetails.shift?.gracePeriod ?? 15);
+      const lateThreshold = new Date(shiftDetails.shiftStart.getTime() + graceMinutes * 60 * 1000);
       if (now > lateThreshold) {
         status = 'Late';
+        isLateCheckIn = true;
+        lateMinutes = Math.max(0, Math.round((now.getTime() - shiftDetails.shiftStart.getTime()) / 60000));
+      }
+    }
+
+    if (isLateCheckIn) {
+      const istLogical = getISTComponents(logicalDate);
+      const startOfMonth = createFromIST(istLogical.year, istLogical.month, 1, 0, 0, 0, 0);
+
+      // Count previous late check-ins for this user in the current calendar month
+      const previousLates = await Attendance.countDocuments({
+        user: req.user._id,
+        date: { $gte: startOfMonth, $lt: logicalDate },
+        $or: [
+          { isLateCheckIn: true },
+          { status: 'Late' },
+          { isLatePenalty: true },
+        ],
+      });
+
+      lateCountInMonth = previousLates + 1;
+
+      // Every 3 late check-ins -> Cut half day (4.5 hours from working hours)
+      if (lateCountInMonth % 3 === 0) {
+        isLatePenalty = true;
+        penaltyDeductionHours = 4.5;
+        status = 'Half Day';
       }
     }
 
     try {
       record = await Attendance.findOneAndUpdate(
         { user: req.user._id, date: logicalDate },
-        { $setOnInsert: { loginTime: now, status } },
+        {
+          $setOnInsert: {
+            loginTime: now,
+            status,
+            isLateCheckIn,
+            lateMinutes,
+            isLatePenalty,
+            penaltyDeductionHours,
+            lateCountInMonth,
+          },
+        },
         { returnDocument: 'after', upsert: true, runValidators: true },
       );
     } catch (error) {
       if (error.code === 11000) record = await Attendance.findOne({ user: req.user._id, date: logicalDate });
       else throw error;
     }
-    await writeAuditLog(req, 'attendance.punch_in', 'Attendance', record._id);
+    await writeAuditLog(req, 'attendance.punch_in', 'Attendance', record._id, {
+      isLateCheckIn,
+      isLatePenalty,
+      lateMinutes,
+      penaltyDeductionHours,
+      lateCountInMonth,
+      status: record.status,
+    });
   } else {
     if (!record?.loginTime) throw new AppError('You must punch in before punching out', 409, 'NOT_PUNCHED_IN');
     if (record.logoutTime) return res.json({ message: 'Already punched out for this shift', record });
@@ -272,23 +326,83 @@ const punchInOut = asyncHandler(async (req, res) => {
       throw new AppError('You cannot check out while on a break. Please end your break (break out) first.', 400, 'ACTIVE_BREAK_EXISTS');
     }
     record.logoutTime = new Date();
+
+    const { start, end } = logicalShiftWindow(record.logoutTime);
+    const userBreaks = await BreakLog.find({
+      user: req.user._id,
+      startTime: { $gte: start, $lte: end },
+    }).lean();
+    const breakMs = userBreaks.reduce((total, item) => total + Math.max(0, (item.endTime ? new Date(item.endTime).getTime() : record.logoutTime.getTime()) - new Date(item.startTime).getTime()), 0);
+    const grossMs = Math.max(0, record.logoutTime.getTime() - record.loginTime.getTime());
+    const netWorkingMs = Math.max(0, grossMs - breakMs);
+    const grossHours = netWorkingMs / 3600000;
+    record.grossHours = grossHours;
+
+    const penalty = record.isLatePenalty ? (record.penaltyDeductionHours || 4.5) : 0;
+    const netHours = Math.max(0, grossHours - penalty);
+    record.totalHours = netHours;
+
+    if (record.isLatePenalty) {
+      record.status = 'Half Day';
+    } else if (netHours < 7) {
+      record.status = 'Half Day';
+    } else if (record.isLateCheckIn) {
+      record.status = 'Late';
+    } else {
+      record.status = 'Present';
+    }
     await record.save();
-    await writeAuditLog(req, 'attendance.punch_out', 'Attendance', record._id, { totalHours: record.totalHours });
+    await writeAuditLog(req, 'attendance.punch_out', 'Attendance', record._id, {
+      totalHours: record.totalHours,
+      grossHours: record.grossHours,
+      isLatePenalty: record.isLatePenalty,
+      status: record.status,
+    });
   }
 
   record = await record.populate('user', 'name email employeeId role');
   const recordObj = record.toObject();
   const populated = await populateActiveHours([recordObj]);
+
+  let notificationTitle = resolvedAction === 'in' ? 'Attendance: Punched In' : 'Attendance: Punched Out';
+  let notificationMessage = `${req.user.name}, your ${resolvedAction === 'in' ? 'arrival' : 'departure'} was recorded successfully.`;
+  let notificationType = 'success';
+
+  if (resolvedAction === 'in') {
+    if (record.isLatePenalty) {
+      notificationTitle = 'Attendance: Half Day Deduction Applied';
+      notificationMessage = `${req.user.name}, this is your ${record.lateCountInMonth || 3}th late check-in this month. Every 3 late check-ins cuts half a day: 4.5 hours have been deducted from your working hours.`;
+      notificationType = 'danger';
+    } else if (record.isLateCheckIn) {
+      notificationTitle = 'Attendance: Late Check-In Recorded';
+      notificationMessage = `${req.user.name}, your check-in was recorded as Late (${record.lateMinutes || 0} mins late after grace period). Late check-in #${record.lateCountInMonth || 1} this month. Every 3 late check-ins results in a half-day (4.5h) deduction.`;
+      notificationType = 'warning';
+    }
+  }
+
   await dispatchNotifications({
     recipients: req.user._id,
-    title: resolvedAction === 'in' ? 'Attendance: punched in' : 'Attendance: punched out',
-    message: `${req.user.name}, your ${resolvedAction === 'in' ? 'arrival' : 'departure'} was recorded successfully.`,
-    type: 'success',
+    title: notificationTitle,
+    message: notificationMessage,
+    type: notificationType,
     link: '/attendance',
     createdBy: req.user._id,
-    metadata: { attendanceId: record._id, action: resolvedAction },
+    metadata: {
+      attendanceId: record._id,
+      action: resolvedAction,
+      isLateCheckIn: record.isLateCheckIn,
+      isLatePenalty: record.isLatePenalty,
+      lateMinutes: record.lateMinutes,
+      penaltyDeductionHours: record.penaltyDeductionHours,
+      lateCountInMonth: record.lateCountInMonth,
+    },
   });
-  return res.json({ message: resolvedAction === 'in' ? 'Punch in recorded' : 'Punch out recorded', record: populated[0] });
+  return res.json({
+    message: resolvedAction === 'in'
+      ? (record.isLatePenalty ? 'Punched in (3rd Late Check-in: Half Day penalty cut applied)' : record.isLateCheckIn ? 'Punched in (Late Check-in)' : 'Punch in recorded')
+      : 'Punch out recorded',
+    record: populated[0]
+  });
 });
 
 const getShiftStatus = asyncHandler(async (req, res) => {
@@ -316,11 +430,17 @@ const getShiftStatus = asyncHandler(async (req, res) => {
   if (isPunchedIn && now >= autoCheckoutTime) {
     record.logoutTime = now;
     record.autoPunchedOut = true;
+    const diffHours = Math.max(0, (record.logoutTime.getTime() - record.loginTime.getTime()) / 3600000);
+    record.totalHours = diffHours;
+    if (diffHours < 7) {
+      record.status = 'Half Day';
+    }
     await record.save();
 
     await writeAuditLog(req, 'attendance.auto_punch_out', 'Attendance', record._id, {
       reason: 'overtime_unanswered_timeout',
       totalHours: record.totalHours,
+      status: record.status,
     });
 
     await dispatchNotifications({
@@ -336,6 +456,9 @@ const getShiftStatus = asyncHandler(async (req, res) => {
       hasRecord: true,
       isPunchedIn: false,
       isShiftCompleted: true,
+      isEarlyCheckout: diffHours < 7,
+      totalHours: diffHours,
+      status: record.status,
       loginTime: record.loginTime,
       logoutTime: record.logoutTime,
       scheduledStartTime: shiftDetails.shiftStart,
@@ -355,11 +478,21 @@ const getShiftStatus = asyncHandler(async (req, res) => {
 
   const shouldPrompt = Boolean(isPunchedIn && now >= promptTime && now < autoCheckoutTime);
   const secondsRemaining = shouldPrompt ? Math.max(0, Math.floor((autoCheckoutTime.getTime() - now.getTime()) / 1000)) : 0;
+  const totalHours = record ? (record.totalHours || (logoutTime && loginTime ? Math.max(0, (new Date(logoutTime).getTime() - new Date(loginTime).getTime()) / 3600000) : 0)) : 0;
+  const isEarlyCheckout = Boolean(isShiftCompleted && (totalHours < 7 || record?.status === 'Half Day'));
 
   return res.json({
     hasRecord: Boolean(record),
     isPunchedIn,
     isShiftCompleted,
+    isEarlyCheckout,
+    totalHours,
+    grossHours: record?.grossHours || totalHours,
+    status: record?.status || null,
+    isLateCheckIn: Boolean(record?.isLateCheckIn),
+    isLatePenalty: Boolean(record?.isLatePenalty),
+    penaltyDeductionHours: record?.penaltyDeductionHours || 0,
+    lateCountInMonth: record?.lateCountInMonth || 0,
     loginTime,
     logoutTime,
     scheduledStartTime: shiftDetails.shiftStart,
@@ -415,6 +548,9 @@ const updateAttendanceRecord = asyncHandler(async (req, res) => {
   const record = await Attendance.findById(req.params.id);
   if (!record) throw new AppError('Attendance record not found', 404, 'ATTENDANCE_NOT_FOUND');
   if (req.body.status !== undefined) record.status = validators.enumValue(req.body.status, ['Present', 'Absent', 'Late', 'Half Day'], 'status');
+  if (req.body.isLateCheckIn !== undefined) record.isLateCheckIn = Boolean(req.body.isLateCheckIn);
+  if (req.body.isLatePenalty !== undefined) record.isLatePenalty = Boolean(req.body.isLatePenalty);
+  if (req.body.penaltyDeductionHours !== undefined) record.penaltyDeductionHours = Number(req.body.penaltyDeductionHours);
   if (req.body.loginTime !== undefined) {
     const loginTime = req.body.loginTime ? new Date(req.body.loginTime) : null;
     validators.ensure(!loginTime || !Number.isNaN(loginTime.getTime()), 'Valid loginTime is required', 'loginTime');

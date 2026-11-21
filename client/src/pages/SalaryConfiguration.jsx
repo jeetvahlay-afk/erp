@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Calculator,
   CircleDollarSign,
+  Printer,
   ReceiptText,
   Save,
   Search,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
 import { feedback } from '../lib/feedback';
+import SalarySlipModal from '../components/SalarySlipModal';
 import {
   Avatar,
   EmptyState,
@@ -53,6 +55,7 @@ const SalaryConfiguration = () => {
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState('');
   const [structure, setStructure] = useState(emptyStructure);
+  const [slipModalOpen, setSlipModalOpen] = useState(false);
   const [state, setState] = useState({ loading: true, error: '', saving: false });
 
   const load = async () => {
@@ -122,9 +125,14 @@ const SalaryConfiguration = () => {
         breadcrumbs={['Payroll', 'Salary Configuration']}
         actions={
           selected && (
-            <ToolbarButton primary icon={Save} disabled={state.saving} onClick={save}>
-              {state.saving ? 'Saving…' : 'Save Structure'}
-            </ToolbarButton>
+            <div className="flex items-center gap-2">
+              <ToolbarButton icon={Printer} onClick={() => setSlipModalOpen(true)}>
+                Salary Slip Generator
+              </ToolbarButton>
+              <ToolbarButton primary icon={Save} disabled={state.saving} onClick={save}>
+                {state.saving ? 'Saving…' : 'Save Structure'}
+              </ToolbarButton>
+            </div>
           )
         }
       />
@@ -198,9 +206,14 @@ const SalaryConfiguration = () => {
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-400">Net Take-Home</p>
-                  <p className="text-xl font-bold text-emerald-600">{formatCurrency(totals.net)}</p>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs text-slate-400">Net Take-Home</p>
+                    <p className="text-xl font-bold text-emerald-600">{formatCurrency(totals.net)}</p>
+                  </div>
+                  <ToolbarButton icon={Printer} onClick={() => setSlipModalOpen(true)}>
+                    Generate Slip
+                  </ToolbarButton>
                 </div>
               </div>
 
@@ -309,6 +322,15 @@ const SalaryConfiguration = () => {
           )}
         </div>
       </div>
+
+      {selected && (
+        <SalarySlipModal
+          open={slipModalOpen}
+          onClose={() => setSlipModalOpen(false)}
+          employee={selected}
+          structure={structure}
+        />
+      )}
     </div>
   );
 };

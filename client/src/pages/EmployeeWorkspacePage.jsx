@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Cake, CalendarDays, Download, Eye, FileCheck2, FileText, Forward, Mail, Megaphone,
+  Cake, CalendarDays, Download, Eye, FileCheck2, FileText, Forward, Megaphone,
   MessageCircle, MessagesSquare, Paperclip, Plus, Reply, Send, ShieldCheck, SmilePlus, Trash2, Upload, X,
 } from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
@@ -12,7 +12,6 @@ import {
 } from '../components/ui/EnterpriseUI';
 
 const PAGE_CONFIG = {
-  mail: { title: 'My Mails', section: 'Workspace', icon: Mail, endpoint: '/api/workspace/mail', empty: 'No mail messages', message: 'Your HR and company mail will appear here.' },
   documents: { title: 'My Documents', section: 'Self Service', icon: FileText, endpoint: '/api/workspace/documents', empty: 'No documents uploaded', message: 'Your employment documents will appear here.' },
   announcements: { title: 'Announcements', section: 'Company', icon: Megaphone, endpoint: '/api/workspace/announcement', empty: 'No announcements', message: 'Company announcements will appear here.' },
   birthdays: { title: 'Birthdays', section: 'Company', icon: Cake, endpoint: '/api/workspace/birthdays', empty: 'No upcoming birthdays', message: 'Upcoming employee birthdays will appear here.' },

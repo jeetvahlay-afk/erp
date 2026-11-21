@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   Coffee,
   Cpu,
-  Mail,
   Paintbrush,
   Route,
   Shield,
@@ -36,13 +35,6 @@ const options = [
     description: 'Payment, messaging, and external third-party service connections.',
     icon: Shield,
     path: '/accounts-config',
-  },
-  {
-    type: 'mail',
-    name: 'Mail Configuration',
-    description: 'Configure separate SMTP email accounts and test email deliverability.',
-    icon: Mail,
-    path: '/mail-config',
   },
   {
     type: 'breaks',

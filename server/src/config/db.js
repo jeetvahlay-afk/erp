@@ -4,6 +4,8 @@ const logger = require('../utils/logger');
 
 mongoose.set('strictQuery', true);
 
+mongoose.connection.on('error', () => {});
+
 const connectDB = async () => {
   const connection = await mongoose.connect(env.mongoUri, {
     autoIndex: !env.isProduction,

@@ -5,6 +5,7 @@ import {
   Clock3,
   Coffee,
   Edit2,
+  History,
   Layers3,
   Plus,
   RefreshCw,
@@ -42,6 +43,8 @@ const ManageDailyBreaks = () => {
   const [breaks, setBreaks] = useState([]);
   const [isCustom, setIsCustom] = useState(false);
   const [requests, setRequests] = useState([]);
+  const [requestTab, setRequestTab] = useState('pending'); // 'pending' | 'history' | 'all'
+  const [requestHistoryFilter, setRequestHistoryFilter] = useState('all'); // 'all' | 'Approved' | 'Rejected'
   const [editing, setEditing] = useState(null);
   const [state, setState] = useState({ loading: true, error: '', saving: false, processing: '' });
 
@@ -78,6 +81,7 @@ const ManageDailyBreaks = () => {
       setIsCustom(true);
       setEditing(null);
       feedback.success('Daily break schedule saved.');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
     } catch (error) {
       feedback.error(getApiError(error, 'Unable to save daily break schedule'));
     } finally {
@@ -119,6 +123,7 @@ const ManageDailyBreaks = () => {
     try {
       await api.delete(`/api/daily-breaks?date=${selectedDate}`);
       feedback.success('Daily override removed.');
+      window.dispatchEvent(new CustomEvent('teamhub:breaks-updated'));
       load();
     } catch (error) {
       feedback.error(getApiError(error, 'Unable to revert schedule'));
@@ -138,16 +143,36 @@ const ManageDailyBreaks = () => {
     }
   };
 
-  const sortedRequests = useMemo(
-    () =>
-      [...requests].sort((a, b) => {
-        const isPendingA = String(a.status).toLowerCase() === 'pending';
-        const isPendingB = String(b.status).toLowerCase() === 'pending';
-        const priority = Number(isPendingB) - Number(isPendingA);
-        return priority || new Date(b.createdAt) - new Date(a.createdAt);
-      }),
-    [requests]
-  );
+  const requestCounts = useMemo(() => {
+    const res = { pending: 0, approved: 0, rejected: 0 };
+    requests.forEach((r) => {
+      const s = String(r.status || '').toLowerCase();
+      if (s === 'approved') res.approved += 1;
+      else if (s === 'rejected') res.rejected += 1;
+      else res.pending += 1;
+    });
+    return res;
+  }, [requests]);
+
+  const requestHistoryCount = requestCounts.approved + requestCounts.rejected;
+
+  const filteredRequests = useMemo(() => {
+    return requests
+      .filter((r) => {
+        const s = String(r.status || '').toLowerCase();
+        if (requestTab === 'pending') {
+          return s === 'pending';
+        }
+        if (requestTab === 'history') {
+          if (s === 'pending') return false;
+          if (requestHistoryFilter === 'Approved') return s === 'approved';
+          if (requestHistoryFilter === 'Rejected') return s === 'rejected';
+          return true;
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [requests, requestTab, requestHistoryFilter]);
 
   if (state.loading) return <LoadingState label="Loading daily break administration…" />;
   if (state.error) return <ErrorState message={state.error} retry={load} />;
@@ -278,10 +303,91 @@ const ManageDailyBreaks = () => {
         </div>
       </div>
 
-      {/* Break Requests Table */}
+      {/* Break Requests Table with Separate Pending vs History Views */}
       <TableShell
-        title="Employee Break Requests"
-        summary={`${sortedRequests.length} total ad-hoc break submissions`}
+        title={
+          requestTab === 'pending'
+            ? `Pending Break Requests (${filteredRequests.length})`
+            : requestTab === 'history'
+            ? `Break Requests History (${filteredRequests.length})`
+            : `All Break Requests (${filteredRequests.length})`
+        }
+        summary={
+          requestTab === 'pending'
+            ? 'Ad-hoc employee break requests awaiting approval or rejection'
+            : requestTab === 'history'
+            ? 'Archived record of approved and rejected custom break submissions'
+            : `${requests.length} total ad-hoc break submissions`
+        }
+        toolbar={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setRequestTab('pending')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  requestTab === 'pending'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Clock3 size={13} className={requestTab === 'pending' ? 'text-amber-500' : 'text-slate-400'} />
+                <span>Pending</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    requestTab === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {requestCounts.pending}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRequestTab('history')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  requestTab === 'history'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <History size={13} className={requestTab === 'history' ? 'text-blue-600' : 'text-slate-400'} />
+                <span>History</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    requestTab === 'history' ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {requestHistoryCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRequestTab('all')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  requestTab === 'all'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>All ({requests.length})</span>
+              </button>
+            </div>
+
+            {requestTab === 'history' && (
+              <select
+                value={requestHistoryFilter}
+                onChange={(e) => setRequestHistoryFilter(e.target.value)}
+                className="bg-white border border-slate-200/80 rounded-xl px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
+              >
+                <option value="all">All History ({requestHistoryCount})</option>
+                <option value="Approved">Approved Only ({requestCounts.approved})</option>
+                <option value="Rejected">Rejected Only ({requestCounts.rejected})</option>
+              </select>
+            )}
+          </div>
+        }
       >
         <div className="overflow-x-auto no-scrollbar">
           <table className="w-full text-left text-xs">
@@ -291,18 +397,24 @@ const ManageDailyBreaks = () => {
                 <th className="py-3 px-4">Reason / Type</th>
                 <th className="py-3 px-4">Requested Time</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Decision</th>
+                <th className="py-3 px-4 text-right">
+                  {requestTab === 'pending' ? 'Decision' : 'Action / Status'}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sortedRequests.length === 0 ? (
+              {filteredRequests.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-400">
-                    No break requests submitted yet.
+                    {requestTab === 'pending'
+                      ? 'No pending break requests awaiting decision.'
+                      : requestTab === 'history'
+                      ? 'No historical break requests found.'
+                      : 'No break requests submitted yet.'}
                   </td>
                 </tr>
               ) : (
-                sortedRequests.map((req) => (
+                filteredRequests.map((req) => (
                   <tr key={req._id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">

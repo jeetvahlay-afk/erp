@@ -65,7 +65,20 @@ const ManageEmployee = () => {
               year: 'numeric',
             })
           : '—',
-        status: u.isActive !== false ? 'Active' : 'Inactive',
+        status: (() => {
+          if (u.isActive !== false) return 'Active';
+          const sep = (u.separationType || u.exitReason || 'Inactive').trim();
+          const lower = sep.toLowerCase();
+          if (lower.includes('terminat')) return 'Terminated';
+          if (lower.includes('absco')) return 'Absconded';
+          if (lower.includes('resign')) return 'Resigned';
+          if (lower.includes('retire')) return 'Retired';
+          if (lower.includes('contract')) return 'Contract Ended';
+          return sep || 'Inactive';
+        })(),
+        separationType: u.separationType || '',
+        exitDate: u.exitDate || null,
+        exitReason: u.exitReason || '',
         isActive: u.isActive !== false,
       }));
 
@@ -114,7 +127,10 @@ const ManageEmployee = () => {
         designation === 'All Designations' || emp.designation === designation;
 
       const matchesStatus =
-        statusFilter === 'All Status' || emp.status === statusFilter;
+        statusFilter === 'All Status' ||
+        (statusFilter === 'Active' && emp.isActive) ||
+        (statusFilter === 'Inactive' && !emp.isActive) ||
+        emp.status === statusFilter;
 
       return matchesSearch && matchesDept && matchesDesig && matchesStatus;
     });
@@ -170,10 +186,18 @@ const ManageEmployee = () => {
   if (loading && !employees.length) return <LoadingState label="Loading employees…" />;
   if (error && !employees.length) return <ErrorState message={error} retry={load} />;
 
-  const totalEmployees = stats.totalEmployees > 1 ? stats.totalEmployees : 256;
-  const activeEmployees = stats.activeEmployees > 1 ? stats.activeEmployees : 238;
-  const newJoiners = stats.newJoiners > 0 ? stats.newJoiners : 12;
-  const inactiveEmployees = stats.inactiveEmployees > 0 ? stats.inactiveEmployees : 18;
+  const totalEmployees = stats.totalEmployees ?? employees.length;
+  const activeEmployees = stats.activeEmployees ?? employees.filter((e) => e.isActive !== false).length;
+  const newJoiners = stats.newJoiners ?? 0;
+  const inactiveEmployees = stats.inactiveEmployees ?? employees.filter((e) => e.isActive === false).length;
+
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedEmployees = filteredEmployees.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 space-y-4 sm:space-y-4.5 w-full max-w-[1920px] mx-auto text-slate-800 dark:text-slate-100 pb-10">
@@ -341,6 +365,11 @@ const ManageEmployee = () => {
             >
               <option>All Status</option>
               <option>Active</option>
+              <option>Resigned</option>
+              <option>Terminated</option>
+              <option>Absconded</option>
+              <option>Retired</option>
+              <option>Contract Ended</option>
               <option>On Leave</option>
               <option>Inactive</option>
             </select>
@@ -386,7 +415,14 @@ const ManageEmployee = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {filteredEmployees.map((emp) => {
+              {paginatedEmployees.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="py-12 text-center text-slate-400">
+                    No employees found matching current filters.
+                  </td>
+                </tr>
+              ) : (
+                paginatedEmployees.map((emp) => {
                 const isSelected = selectedIds.includes(emp._id);
                 return (
                   <tr
@@ -471,10 +507,40 @@ const ManageEmployee = () => {
                           On Leave
                         </span>
                       )}
-                      {emp.status === 'Inactive' && (
+                      {emp.status === 'Terminated' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/60">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          Terminated
+                        </span>
+                      )}
+                      {emp.status === 'Absconded' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200/60">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                          Absconded
+                        </span>
+                      )}
+                      {emp.status === 'Resigned' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/60">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          Resigned
+                        </span>
+                      )}
+                      {emp.status === 'Retired' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200/60">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                          Retired
+                        </span>
+                      )}
+                      {emp.status === 'Contract Ended' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/60">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                          Contract Ended
+                        </span>
+                      )}
+                      {!['Active', 'On Leave', 'Terminated', 'Absconded', 'Resigned', 'Retired', 'Contract Ended'].includes(emp.status) && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-[#fef2f2] text-[#dc2626]">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
-                          Inactive
+                          {emp.status || 'Inactive'}
                         </span>
                       )}
                     </td>
@@ -515,73 +581,54 @@ const ManageEmployee = () => {
                     </td>
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
           </table>
         </div>
 
-        {/* 5. Pagination Matching Reference Mockup */}
+        {/* 5. Dynamic Pagination */}
         <div className="p-4 sm:px-6 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-500">
           <span>
-            Showing 1 - {Math.min(8, filteredEmployees.length)} of {totalEmployees} employees
+            Showing {filteredEmployees.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} -{' '}
+            {Math.min(currentPage * PAGE_SIZE, filteredEmployees.length)} of {filteredEmployees.length} employees
           </span>
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={page === 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ChevronLeft size={14} />
-            </button>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition-colors cursor-pointer"
+              >
+                <ChevronLeft size={14} />
+              </button>
 
-            <button
-              type="button"
-              className="w-8 h-8 rounded-lg bg-[#2563eb] text-white font-semibold flex items-center justify-center shadow-2xs"
-            >
-              1
-            </button>
-            <button
-              type="button"
-              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              2
-            </button>
-            <button
-              type="button"
-              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              3
-            </button>
-            <button
-              type="button"
-              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              4
-            </button>
-            <button
-              type="button"
-              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              5
-            </button>
-            <span className="px-1 text-slate-400">...</span>
-            <button
-              type="button"
-              className="w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              32
-            </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  className={`w-8 h-8 rounded-lg font-semibold flex items-center justify-center transition-colors cursor-pointer ${
+                    p === currentPage
+                      ? 'bg-[#2563eb] text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
 
-            <button
-              type="button"
-              onClick={() => setPage((p) => p + 1)}
-              className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
+              <button
+                type="button"
+                disabled={currentPage === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition-colors cursor-pointer"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

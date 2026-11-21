@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Building2,
   Calendar,
@@ -49,11 +49,27 @@ const MONTH_NAMES = [
 
 const ManageAttendance = ({ registerOnly = false }) => {
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState(registerOnly ? 'sheet' : 'regular'); // 'regular' | 'sheet' | 'calendar'
+  const [searchParams] = useSearchParams();
+  const initialView = searchParams.get('view') || 'sheet';
+  const [viewMode, setViewMode] = useState(initialView); // 'regular' | 'sheet' | 'calendar'
   const [records, setRecords] = useState([]);
   const [usersList, setUsersList] = useState([]);
+  const [traineesList, setTraineesList] = useState([]);
   const [kpis, setKpis] = useState({});
-  const [activeTab, setActiveTab] = useState('Daily Attendance');
+
+  const initialStaffType =
+    searchParams.get('staffType') ||
+    (searchParams.get('type') === 'trainee' || searchParams.get('type') === 'trainees'
+      ? 'Trainees'
+      : 'All Staff');
+  const [staffTypeFilter, setStaffTypeFilter] = useState(initialStaffType);
+  const [activeTab, setActiveTab] = useState(
+    initialStaffType === 'Trainees'
+      ? 'Trainee Attendance Sheet'
+      : initialView === 'regular'
+      ? 'Daily Attendance'
+      : 'Attendance Sheet'
+  );
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [calendarSelectedDate, setCalendarSelectedDate] = useState(() => new Date());
 
@@ -80,10 +96,11 @@ const ManageAttendance = ({ registerOnly = false }) => {
     setLoading(true);
     setError('');
     try {
-      const [recordRes, dashboardRes, usersRes] = await Promise.allSettled([
+      const [recordRes, dashboardRes, usersRes, interviewsRes] = await Promise.allSettled([
         api.get('/api/attendance'),
         api.get('/api/dashboard/attendance'),
         api.get('/api/users?limit=300'),
+        api.get('/api/interviews'),
       ]);
 
       let apiRecords = [];
@@ -96,6 +113,31 @@ const ManageAttendance = ({ registerOnly = false }) => {
         const uList = Array.isArray(uData) ? uData : asArray(uData?.users || uData?.items);
         setUsersList(uList);
       }
+
+      let rawTrainees = [];
+      if (interviewsRes.status === 'fulfilled') {
+        const iData = asArray(interviewsRes.value.data);
+        rawTrainees = iData.filter((cand) => {
+          const stage = String(cand.stage || '').toLowerCase();
+          const status = String(cand.status || '').toLowerCase();
+          return (
+            stage.includes('training') ||
+            [
+              'ongoing',
+              'completed',
+              'ineligible',
+              'left',
+              'discontinued',
+              'in training',
+              'training candidates',
+              'all trainees',
+              'training',
+            ].includes(status) ||
+            Boolean(cand.trainingStatus)
+          );
+        });
+      }
+      setTraineesList(rawTrainees);
 
       if (dashboardRes.status === 'fulfilled') {
         setKpis(dashboardRes.value.data?.kpis || {});
@@ -121,13 +163,19 @@ const ManageAttendance = ({ registerOnly = false }) => {
         }
 
         const userId = r.user?._id || r.user?.id || (typeof r.user === 'string' ? r.user : null);
+        const isRecordTrainee = Boolean(
+          r.user?.employmentType === 'Intern' ||
+          String(r.user?.role || '').toLowerCase() === 'trainee' ||
+          String(r.user?.designation || '').toLowerCase().includes('trainee') ||
+          rawTrainees.some((t) => String(t._id) === String(userId))
+        );
 
         return {
           _id: r._id,
           userId,
           employeeId: r.user?.employeeId || `EMP${String(i + 1).padStart(3, '0')}`,
           name: r.user?.name || 'Staff Member',
-          email: r.user?.email || 'staff@teamhub.com',
+          email: r.user?.email || '—',
           avatar: r.user?.avatar || (r.user?.profileImage ? (r.user.profileImage.startsWith('http') ? r.user.profileImage : `/api/users/${userId}/avatar`) : ''),
           department: r.user?.department || 'General',
           shift: r.shift || 'General',
@@ -137,12 +185,48 @@ const ManageAttendance = ({ registerOnly = false }) => {
           checkOut: checkOutDate ? checkOutDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—',
           workHours: workHoursStr,
           totalHours: r.totalHours || 0,
+          grossHours: r.grossHours || r.totalHours || 0,
+          isLateCheckIn: Boolean(r.isLateCheckIn),
+          lateMinutes: r.lateMinutes || 0,
+          isLatePenalty: Boolean(r.isLatePenalty),
+          penaltyDeductionHours: r.penaltyDeductionHours || 0,
           status: r.status || 'Present',
+          isTrainee: isRecordTrainee,
           rawRecord: r,
         };
       });
 
-      setRecords(mappedRecords);
+      // Integrate Trainees as daily records if they don't already have one
+      const todayStr = formatDateKey(new Date());
+      const traineeDailyRecords = rawTrainees.map((cand, idx) => {
+        const traineeId = String(cand._id);
+        const alreadyInRecords = mappedRecords.some(
+          (r) => String(r.userId) === traineeId || r.name === cand.candidateName
+        );
+        if (alreadyInRecords) return null;
+
+        return {
+          _id: `trn_rec_${traineeId}`,
+          userId: traineeId,
+          employeeId: cand.phoneNumber ? `TRN-${cand.phoneNumber.slice(-4)}` : `TRN-${String(idx + 1).padStart(3, '0')}`,
+          name: cand.candidateName,
+          email: cand.email || cand.phoneNumber || '—',
+          avatar: '',
+          department: cand.candidatePost || cand.branch || 'Training',
+          shift: 'General',
+          date: new Date(),
+          dateKey: todayStr,
+          checkIn: '—',
+          checkOut: '—',
+          workHours: '—',
+          totalHours: 0,
+          status: 'Present',
+          isTrainee: true,
+          rawRecord: null,
+        };
+      }).filter(Boolean);
+
+      setRecords([...mappedRecords, ...traineeDailyRecords]);
     } catch (requestError) {
       setRecords([]);
       setError(getApiError(requestError, 'Unable to load attendance records'));
@@ -161,6 +245,8 @@ const ManageAttendance = ({ registerOnly = false }) => {
     setEmployeeFilter('All Employees');
     setShiftFilter('All Shifts');
     setStatusFilter('All Status');
+    setStaffTypeFilter('All Staff');
+    setActiveTab('Daily Attendance');
     setPage(1);
   };
 
@@ -169,15 +255,20 @@ const ManageAttendance = ({ registerOnly = false }) => {
     const depts = new Set();
     records.forEach((r) => r.department && depts.add(r.department));
     usersList.forEach((u) => u.department && depts.add(u.department));
+    traineesList.forEach((t) => {
+      if (t.candidatePost) depts.add(t.candidatePost);
+      if (t.branch) depts.add(t.branch);
+    });
     return [...depts].sort();
-  }, [records, usersList]);
+  }, [records, usersList, traineesList]);
 
   const uniqueEmployeeNames = useMemo(() => {
     const names = new Set();
     records.forEach((r) => r.name && names.add(r.name));
     usersList.forEach((u) => u.name && names.add(u.name));
+    traineesList.forEach((t) => t.candidateName && names.add(t.candidateName));
     return [...names].sort();
-  }, [records, usersList]);
+  }, [records, usersList, traineesList]);
 
   // Combined master employee list (for Sheet View and complete roster)
   const allEmployees = useMemo(() => {
@@ -185,6 +276,12 @@ const ManageAttendance = ({ registerOnly = false }) => {
     // Add all registered users
     usersList.forEach((u) => {
       const id = String(u._id || u.id || u.employeeId || '');
+      const isUserTrainee =
+        u.employmentType === 'Intern' ||
+        String(u.role || '').toLowerCase() === 'trainee' ||
+        String(u.designation || '').toLowerCase().includes('trainee') ||
+        String(u.designation || '').toLowerCase().includes('intern');
+
       if (id) {
         map.set(id, {
           userId: u._id || u.id,
@@ -194,6 +291,28 @@ const ManageAttendance = ({ registerOnly = false }) => {
           avatar: u.avatar || (u.profileImage ? (u.profileImage.startsWith('http') ? u.profileImage : `/api/users/${u._id}/avatar`) : ''),
           department: u.department || 'General',
           shift: u.shift || 'General',
+          isTrainee: isUserTrainee,
+          traineeStatus: isUserTrainee ? 'In Training' : null,
+        });
+      }
+    });
+
+    // Add trainee candidates from recruitment
+    traineesList.forEach((cand, idx) => {
+      const id = String(cand._id || `trn_${idx}`);
+      if (!map.has(id)) {
+        map.set(id, {
+          userId: id,
+          employeeId: cand.phoneNumber ? `TRN-${cand.phoneNumber.slice(-4)}` : `TRN-${String(idx + 1).padStart(3, '0')}`,
+          name: cand.candidateName,
+          email: cand.email || cand.phoneNumber || '—',
+          avatar: '',
+          department: cand.candidatePost || cand.branch || 'Training',
+          shift: 'General',
+          isTrainee: true,
+          traineeStatus: cand.status || cand.trainingStatus || 'Ongoing',
+          branch: cand.branch || 'Ahmedabad',
+          rawCandidate: cand,
         });
       }
     });
@@ -210,12 +329,14 @@ const ManageAttendance = ({ registerOnly = false }) => {
           avatar: r.avatar,
           department: r.department,
           shift: r.shift,
+          isTrainee: Boolean(r.isTrainee),
+          traineeStatus: r.isTrainee ? 'In Training' : null,
         });
       }
     });
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [usersList, records]);
+  }, [usersList, traineesList, records]);
 
   // Filtered employees for Sheet View
   const filteredEmployees = useMemo(() => {
@@ -224,7 +345,8 @@ const ManageAttendance = ({ registerOnly = false }) => {
         !search ||
         emp.name.toLowerCase().includes(search.toLowerCase()) ||
         emp.employeeId.toLowerCase().includes(search.toLowerCase()) ||
-        emp.email.toLowerCase().includes(search.toLowerCase());
+        emp.email.toLowerCase().includes(search.toLowerCase()) ||
+        (emp.isTrainee && 'trainee'.includes(search.toLowerCase()));
 
       const matchesDept =
         department === 'All Departments' || emp.department === department;
@@ -232,9 +354,14 @@ const ManageAttendance = ({ registerOnly = false }) => {
       const matchesEmp =
         employeeFilter === 'All Employees' || emp.name === employeeFilter;
 
-      return matchesSearch && matchesDept && matchesEmp;
+      const matchesStaffType =
+        staffTypeFilter === 'All Staff' ||
+        (staffTypeFilter === 'Employees' && !emp.isTrainee) ||
+        (staffTypeFilter === 'Trainees' && emp.isTrainee);
+
+      return matchesSearch && matchesDept && matchesEmp && matchesStaffType;
     });
-  }, [allEmployees, search, department, employeeFilter]);
+  }, [allEmployees, search, department, employeeFilter, staffTypeFilter]);
 
   // Filtered attendance records for Regular View
   const filteredRecords = useMemo(() => {
@@ -243,7 +370,8 @@ const ManageAttendance = ({ registerOnly = false }) => {
         !search ||
         rec.name.toLowerCase().includes(search.toLowerCase()) ||
         rec.employeeId.toLowerCase().includes(search.toLowerCase()) ||
-        rec.email.toLowerCase().includes(search.toLowerCase());
+        rec.email.toLowerCase().includes(search.toLowerCase()) ||
+        (rec.isTrainee && 'trainee'.includes(search.toLowerCase()));
 
       const matchesDept =
         department === 'All Departments' || rec.department === department;
@@ -257,9 +385,14 @@ const ManageAttendance = ({ registerOnly = false }) => {
       const matchesStatus =
         statusFilter === 'All Status' || rec.status === statusFilter;
 
-      return matchesSearch && matchesDept && matchesEmp && matchesShift && matchesStatus;
+      const matchesStaffType =
+        staffTypeFilter === 'All Staff' ||
+        (staffTypeFilter === 'Employees' && !rec.isTrainee) ||
+        (staffTypeFilter === 'Trainees' && rec.isTrainee);
+
+      return matchesSearch && matchesDept && matchesEmp && matchesShift && matchesStatus && matchesStaffType;
     });
-  }, [records, search, department, employeeFilter, shiftFilter, statusFilter]);
+  }, [records, search, department, employeeFilter, shiftFilter, statusFilter, staffTypeFilter]);
 
   // Attendance lookup by `${userId || employeeId}_${dateKey}`
   const attendanceLookup = useMemo(() => {
@@ -646,7 +779,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
             Attendance Management
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
-            View, inspect, and export employee attendance across Regular, Sheet, and Calendar views.
+            View, inspect, and export employee attendance across List, Sheet, and Calendar views.
           </p>
         </div>
 
@@ -656,20 +789,30 @@ const ManageAttendance = ({ registerOnly = false }) => {
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs">
             <button
               type="button"
-              onClick={() => setViewMode('regular')}
+              onClick={() => {
+                setViewMode('regular');
+                if (activeTab === 'Attendance Sheet' || activeTab === 'Trainee Attendance Sheet') {
+                  setActiveTab('Daily Attendance');
+                }
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === 'regular'
                 ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
-              title="Regular List / Table View"
+              title="List View"
             >
               <Table size={14} />
-              <span>Regular</span>
+              <span>List</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setViewMode('sheet')}
+              onClick={() => {
+                setViewMode('sheet');
+                if (activeTab !== 'Trainee Attendance Sheet') {
+                  setActiveTab('Attendance Sheet');
+                }
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${viewMode === 'sheet'
                 ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -793,25 +936,40 @@ const ManageAttendance = ({ registerOnly = false }) => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Sub-tabs */}
         <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap sm:flex-nowrap">
-          {['Daily Attendance', 'Attendance Logs', 'Shift Schedule', 'Regularization', 'Overtime'].map(
-            (tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveTab(tab)}
-                  style={isActive ? { backgroundColor: 'var(--erp-primary, #2563eb)' } : undefined}
-                  className={`px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${isActive
-                    ? 'bg-[#2563eb] text-white shadow-2xs'
-                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/70 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}
-                >
-                  {tab}
-                </button>
-              );
-            }
-          )}
+          {[
+            { id: 'Daily Attendance', label: 'Daily Attendance', view: 'regular', staffType: 'All Staff' },
+            { id: 'Attendance Sheet', label: 'Attendance Sheet', view: 'sheet', staffType: 'All Staff' },
+            { id: 'Trainee Attendance Sheet', label: 'Trainee Attendance Sheet', view: 'sheet', staffType: 'Trainees' },
+            { id: 'Shift Schedule', label: 'Shift Schedule', view: 'regular', staffType: 'All Staff' },
+            { id: 'Attendance Logs', label: 'Attendance Logs', view: 'regular', staffType: 'All Staff' },
+            { id: 'Overtime', label: 'Overtime', view: 'regular', staffType: 'All Staff' },
+          ].map((tabItem) => {
+            const isActive = activeTab === tabItem.id;
+            return (
+              <button
+                key={tabItem.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tabItem.id);
+                  setViewMode(tabItem.view);
+                  setStaffTypeFilter(tabItem.staffType);
+                  setPage(1);
+                }}
+                style={isActive ? { backgroundColor: 'var(--erp-primary, #2563eb)' } : undefined}
+                className={`px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${isActive
+                  ? 'bg-[#2563eb] text-white shadow-2xs'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200/70 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+              >
+                <span>{tabItem.label}</span>
+                {tabItem.id === 'Trainee Attendance Sheet' && traineesList.length > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${isActive ? 'bg-blue-500 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                    {traineesList.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Date / Month Navigator Pill with Previous / Next Arrows */}
@@ -886,6 +1044,28 @@ const ManageAttendance = ({ registerOnly = false }) => {
 
       {/* 4. Filter Toolbar */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-wrap items-center gap-2.5">
+        {/* Staff Type Filter (All Staff / Employees / Trainees) */}
+        <div className="relative">
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+            <Users size={13} />
+          </div>
+          <select
+            value={staffTypeFilter}
+            onChange={(e) => {
+              setStaffTypeFilter(e.target.value);
+              if (e.target.value === 'Trainees') setActiveTab('Trainees Attendance');
+              else if (activeTab === 'Trainees Attendance') setActiveTab('Daily Attendance');
+              setPage(1);
+            }}
+            className="appearance-none bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl pl-8 pr-8 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors focus:outline-none cursor-pointer"
+          >
+            <option value="All Staff">All Staff ({allEmployees.length})</option>
+            <option value="Employees">Regular Employees ({allEmployees.filter((e) => !e.isTrainee).length})</option>
+            <option value="Trainees">Trainees ({allEmployees.filter((e) => e.isTrainee).length})</option>
+          </select>
+          <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        </div>
+
         {/* Department Filter */}
         <div className="relative">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
@@ -1062,13 +1242,21 @@ const ManageAttendance = ({ registerOnly = false }) => {
                               </div>
                             )}
                             <div className="min-w-0">
-                              <button
-                                type="button"
-                                onClick={() => rec.userId && navigate(`/admin/attendance/${rec.userId}`)}
-                                className="font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left block leading-tight cursor-pointer"
-                              >
-                                {rec.name}
-                              </button>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => rec.userId && navigate(`/admin/attendance/${rec.userId}`)}
+                                  className="font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left block leading-tight cursor-pointer"
+                                >
+                                  {rec.name}
+                                </button>
+                                {rec.isTrainee && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 shadow-2xs shrink-0">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    Trainee
+                                  </span>
+                                )}
+                              </div>
                               <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal block leading-tight mt-0.5 truncate max-w-[180px]">
                                 {rec.email}
                               </span>
@@ -1111,7 +1299,17 @@ const ManageAttendance = ({ registerOnly = false }) => {
 
                         {/* Work Hours */}
                         <td className="py-2.5 px-2.5 font-normal text-slate-700 dark:text-slate-300">
-                          {rec.workHours}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{rec.workHours}</span>
+                            {rec.isLatePenalty && (
+                              <span
+                                className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-800"
+                                title="3rd late check-in penalty: 4.5 hours cut from working hours"
+                              >
+                                -4.5h cut
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Status Pill */}
@@ -1123,15 +1321,25 @@ const ManageAttendance = ({ registerOnly = false }) => {
                             </span>
                           )}
                           {rec.status === 'Late' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#fffbeb] dark:bg-amber-950/60 text-[#d97706] dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#fffbeb] dark:bg-amber-950/60 text-[#d97706] dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                              title={rec.lateMinutes ? `${rec.lateMinutes} mins late after grace period` : 'Late check-in'}
+                            >
                               <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />
-                              Late
+                              Late{rec.lateMinutes ? ` (${rec.lateMinutes}m)` : ''}
                             </span>
                           )}
                           {rec.status === 'Half Day' && (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff6ff] dark:bg-blue-950/60 text-[#2563eb] dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" />
-                              Half Day
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                                rec.isLatePenalty
+                                  ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
+                                  : 'bg-[#eff6ff] dark:bg-blue-950/60 text-[#2563eb] dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                              }`}
+                              title={rec.isLatePenalty ? '3rd late check-in: Half Day penalty applied (4.5 hours deducted)' : 'Under 7 hours'}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${rec.isLatePenalty ? 'bg-rose-500' : 'bg-[#3b82f6]'}`} />
+                              {rec.isLatePenalty ? 'Half Day (3rd Late)' : 'Half Day'}
                             </span>
                           )}
                           {rec.status === 'Absent' && (
@@ -1337,9 +1545,16 @@ const ManageAttendance = ({ registerOnly = false }) => {
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <span className="font-bold text-slate-900 dark:text-white block leading-tight text-xs truncate max-w-[150px]">
-                                  {emp.name}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-slate-900 dark:text-white block leading-tight text-xs truncate max-w-[130px]">
+                                    {emp.name}
+                                  </span>
+                                  {emp.isTrainee && (
+                                    <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800 shrink-0">
+                                      Trainee
+                                    </span>
+                                  )}
+                                </div>
                                 <span className="text-[10px] text-slate-400 dark:text-slate-500 block leading-tight mt-0.5">
                                   {emp.employeeId} • {emp.department}
                                 </span>
@@ -1411,6 +1626,21 @@ const ManageAttendance = ({ registerOnly = false }) => {
                             // Weekday with no record
                             const isPastOrToday = dayObj.dateKey <= todayKey;
                             if (isPastOrToday) {
+                              if (emp.isTrainee) {
+                                pTotal++;
+                                return (
+                                  <td
+                                    key={dayObj.dayNumber}
+                                    className="p-1 border-r border-slate-100 dark:border-slate-800"
+                                    title={`${emp.name} — ${dayObj.dateKey}: Trainee Session Present`}
+                                  >
+                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded text-[10px] font-bold border transition-transform hover:scale-110 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-700">
+                                      P
+                                    </span>
+                                  </td>
+                                );
+                              }
+
                               aTotal++;
                               return (
                                 <td
@@ -1628,9 +1858,16 @@ const ManageAttendance = ({ registerOnly = false }) => {
                               </div>
                             )}
                             <div>
-                              <span className="font-bold text-slate-900 dark:text-white block leading-tight">
-                                {rec.name}
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-900 dark:text-white block leading-tight">
+                                  {rec.name}
+                                </span>
+                                {rec.isTrainee && (
+                                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800 shrink-0">
+                                    Trainee
+                                  </span>
+                                )}
+                              </div>
                               <span className="text-[11px] text-slate-400 dark:text-slate-500 block leading-tight mt-0.5">
                                 {rec.email}
                               </span>

@@ -1,13 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Download, Play, Wallet, WalletCards } from 'lucide-react';
+import { useEffect, useMemo, useState, Fragment } from 'react';
+import {
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  Download,
+  Play,
+  Printer,
+  Wallet,
+  WalletCards,
+} from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
 import { downloadCsv } from '../lib/export';
 import { feedback } from '../lib/feedback';
+import SalarySlipModal from '../components/SalarySlipModal';
 import {
   Avatar,
   EmptyState,
   ErrorState,
   formatCurrency,
+  formatDate,
   formatNumber,
   LoadingState,
   MetricCard,
@@ -28,6 +39,8 @@ const ManagePayrolls = () => {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [slipRecord, setSlipRecord] = useState(null);
   const [edit, setEdit] = useState({
     paymentStatus: 'unpaid',
     paymentMethod: 'bank_transfer',
@@ -214,6 +227,9 @@ const ManagePayrolls = () => {
                 <th className="py-2.5 px-2.5">DEDUCTIONS</th>
                 <th className="py-2.5 px-2.5">NET PAY</th>
                 <th className="py-2.5 px-2.5">STATUS</th>
+                <th className="py-2.5 px-2.5">PAYMENT DATE</th>
+                <th className="py-2.5 px-2.5">REFERENCE</th>
+                <th className="py-2.5 px-2.5 text-center">DETAILS</th>
                 <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTION</th>
               </tr>
             </thead>
@@ -227,61 +243,180 @@ const ManagePayrolls = () => {
                   (sum, value) => sum + Number(value || 0),
                   0
                 );
+                const isExpanded = expandedId === record._id;
                 return (
-                  <tr key={record._id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-2.5 pl-4 sm:pl-5 pr-2.5">
-                      <div className="flex items-center gap-3">
-                        <Avatar user={record.user} size="sm" />
-                        <div>
-                          <strong className="block text-slate-900 font-bold leading-tight">
-                            {record.user?.name}
-                          </strong>
-                          <span className="text-[11px] text-slate-400 block leading-tight mt-0.5">
-                            {record.user?.employeeId}
-                          </span>
+                  <Fragment key={record._id}>
+                    <tr className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2.5 pl-4 sm:pl-5 pr-2.5">
+                        <div className="flex items-center gap-3">
+                          <Avatar user={record.user} size="sm" />
+                          <div>
+                            <strong className="block text-slate-900 font-bold leading-tight">
+                              {record.user?.name}
+                            </strong>
+                            <span className="text-[11px] text-slate-400 block leading-tight mt-0.5">
+                              {record.user?.employeeId}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-2.5 font-medium text-slate-700">
-                      {record.user?.department || 'General'}
-                    </td>
-                    <td className="py-2.5 px-2.5 text-slate-600">{formatCurrency(record.baseSalary)}</td>
-                    <td className="py-2.5 px-2.5 text-emerald-600 font-medium">
-                      +{formatCurrency(allowances)}
-                    </td>
-                    <td className="py-2.5 px-2.5 text-rose-500 font-medium">
-                      -{formatCurrency(deductions)}
-                    </td>
-                    <td className="py-2.5 px-2.5 font-bold text-slate-900">
-                      {formatCurrency(record.netSalary)}
-                    </td>
-                    <td className="py-2.5 px-2.5">
-                      <StatusBadge
-                        tone={
-                          record.paymentStatus === 'paid'
-                            ? 'success'
-                            : record.paymentStatus === 'processing'
-                            ? 'warning'
-                            : 'danger'
-                        }
-                      >
-                        {record.paymentStatus === 'unpaid'
-                          ? 'Pending'
-                          : record.paymentStatus === 'paid'
-                          ? 'Paid'
-                          : 'Processing'}
-                      </StatusBadge>
-                    </td>
-                    <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(record)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer"
-                      >
-                        Update
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="py-2.5 px-2.5 font-medium text-slate-700">
+                        {record.user?.department || 'General'}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-slate-600">{formatCurrency(record.baseSalary)}</td>
+                      <td className="py-2.5 px-2.5 text-emerald-600 font-medium">
+                        +{formatCurrency(allowances)}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-rose-500 font-medium">
+                        -{formatCurrency(deductions)}
+                      </td>
+                      <td className="py-2.5 px-2.5 font-bold text-slate-900">
+                        {formatCurrency(record.netSalary)}
+                      </td>
+                      <td className="py-2.5 px-2.5">
+                        <StatusBadge
+                          tone={
+                            record.paymentStatus === 'paid'
+                              ? 'success'
+                              : record.paymentStatus === 'processing'
+                              ? 'warning'
+                              : 'danger'
+                          }
+                        >
+                          {record.paymentStatus === 'unpaid'
+                            ? 'Pending'
+                            : record.paymentStatus === 'paid'
+                            ? 'Paid'
+                            : 'Processing'}
+                        </StatusBadge>
+                      </td>
+                      <td className="py-2.5 px-2.5 text-slate-500 whitespace-nowrap">
+                        {formatDate(record.paymentDate)}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-slate-600">{record.referenceNumber || '—'}</td>
+                      <td className="py-2.5 px-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(isExpanded ? null : record._id)}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <span>{isExpanded ? 'Hide' : 'View'}</span>
+                          {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                      </td>
+                      <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSlipRecord(record)}
+                            title="Generate Salary Slip"
+                            className="p-1.5 rounded-lg border border-slate-200 text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                          >
+                            <Printer size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(record)}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer"
+                          >
+                            Update
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-slate-50/60">
+                        <td colSpan={11} className="py-4 px-6">
+                          <div className="bg-white p-4.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block mb-2">
+                                  Earnings Breakdown
+                                </span>
+                                <div className="space-y-1.5 text-xs text-slate-600">
+                                  <div className="flex justify-between">
+                                    <span>Basic Salary:</span>
+                                    <strong>{formatCurrency(record.baseSalary)}</strong>
+                                  </div>
+                                  {Object.entries(record.allowances || {}).map(([key, val]) => (
+                                    <div key={key} className="flex justify-between">
+                                      <span className="capitalize">{key}:</span>
+                                      <strong className="text-emerald-600">
+                                        +{formatCurrency(val)}
+                                      </strong>
+                                    </div>
+                                  ))}
+                                  <div className="pt-2 border-t border-slate-100 flex justify-between font-bold text-slate-900">
+                                    <span>Total Gross:</span>
+                                    <span className="text-emerald-700">
+                                      {formatCurrency(record.baseSalary + allowances)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block mb-2">
+                                  Deductions Breakdown
+                                </span>
+                                <div className="space-y-1.5 text-xs text-slate-600">
+                                  {Object.entries(record.deductions || {}).map(([key, val]) => (
+                                    <div key={key} className="flex justify-between">
+                                      <span className="capitalize">{key === 'pf' ? 'Provident Fund (PF)' : key}:</span>
+                                      <strong className="text-rose-600">
+                                        −{formatCurrency(val)}
+                                      </strong>
+                                    </div>
+                                  ))}
+                                  <div className="pt-2 border-t border-slate-100 flex justify-between font-bold text-slate-900">
+                                    <span>Total Deductions:</span>
+                                    <span className="text-rose-700">−{formatCurrency(deductions)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+                              <div className="flex items-center gap-4">
+                                <span>
+                                  Payment Method:{' '}
+                                  <strong className="text-slate-800 capitalize">
+                                    {record.paymentMethod?.replace('_', ' ') || 'Bank Transfer'}
+                                  </strong>
+                                </span>
+                                <span>
+                                  Payment Date:{' '}
+                                  <strong className="text-slate-800">{formatDate(record.paymentDate)}</strong>
+                                </span>
+                                <span>
+                                  Reference:{' '}
+                                  <strong className="text-slate-800 font-mono">
+                                    {record.referenceNumber || '—'}
+                                  </strong>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setSlipRecord(record)}
+                                  className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <Printer size={13} className="text-blue-600" />
+                                  <span>Generate Salary Slip</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit(record)}
+                                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <span>Update Disbursement</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -352,6 +487,29 @@ const ManagePayrolls = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Salary Slip Modal */}
+      {slipRecord && (
+        <SalarySlipModal
+          open={Boolean(slipRecord)}
+          onClose={() => setSlipRecord(null)}
+          employee={slipRecord.user || { name: 'Employee' }}
+          structure={{
+            baseSalary: slipRecord.baseSalary || 0,
+            hra: slipRecord.allowances?.housing || 0,
+            transportAllowance: slipRecord.allowances?.transport || 0,
+            securityAllowance: 0,
+            otherAllowances: (slipRecord.allowances?.bonus || 0) + (slipRecord.allowances?.other || 0),
+            pfDeduction: slipRecord.deductions?.pf || 0,
+            taxDeduction: slipRecord.deductions?.tax || 0,
+            securityDeposit: slipRecord.deductions?.securityDeposit || 0,
+            otherDeductions:
+              (slipRecord.deductions?.insurance || 0) +
+              (slipRecord.deductions?.unpaidLeave || 0) +
+              (slipRecord.deductions?.other || 0),
+          }}
+        />
+      )}
     </div>
   );
 };

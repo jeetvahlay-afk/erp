@@ -34,7 +34,6 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const workspaceRoutes = require('./routes/workspaceRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const taskRoutes = require('./routes/taskRoutes');
-const employeeMailRoutes = require('./routes/employeeMailRoutes');
 const workReportRoutes = require('./routes/workReportRoutes');
 
 const app = express();
@@ -125,7 +124,6 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/workspace', workspaceRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/mailbox', employeeMailRoutes);
 app.use('/api/work-reports', workReportRoutes);
 
 app.use(notFound);

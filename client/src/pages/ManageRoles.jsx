@@ -363,7 +363,7 @@ const ManageRoles = () => {
               <div>
                 <h4 className="text-xs font-bold text-slate-800">Assign Route Permissions</h4>
                 <p className="text-[11px] text-slate-400">
-                  Select which of the 32 application routes are accessible to employees with this role.
+                  Select which of the {availableRoutes.length} application routes are accessible to employees with this role.
                 </p>
               </div>
               <div className="flex items-center gap-2">

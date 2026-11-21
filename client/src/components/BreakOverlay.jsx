@@ -7,11 +7,10 @@ import {
   LockKeyhole,
   Minimize2,
   ShieldCheck,
-  Square,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import api, { getApiError } from '../lib/api';
+import api from '../lib/api';
 import { feedback } from '../lib/feedback';
 
 const BreakOverlay = () => {

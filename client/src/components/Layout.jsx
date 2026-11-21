@@ -20,9 +20,10 @@ import {
   FolderOpen,
   LayoutDashboard,
   LayoutGrid,
+  Loader2,
   LockKeyhole,
+  LogIn,
   LogOut,
-  Mail,
   Megaphone,
   Menu,
   Moon,
@@ -40,9 +41,10 @@ import {
   WalletCards,
   X,
 } from 'lucide-react';
-import api from '../lib/api';
+import api, { asArray, getApiError } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { feedback } from '../lib/feedback';
+import { getLogicalDateString } from '../utils/date';
 import {
   ADMIN_ROLES,
   HR_ROLES,
@@ -53,7 +55,7 @@ import {
 import BreakOverlay from './BreakOverlay';
 import ShiftOvertimeModal from './ShiftOvertimeModal';
 import { useTheme } from '../context/ThemeContext';
-import { canAccessRoute, isAdministrator } from '../lib/routeAccess';
+import { canAccessRoute } from '../lib/routeAccess';
 
 const formatTimeAgo = (dateStr) => {
   if (!dateStr) return '';
@@ -68,13 +70,6 @@ const formatTimeAgo = (dateStr) => {
   const diffDay = Math.floor(diffHour / 24);
   return `${diffDay}d ago`;
 };
-
-const DEFAULT_PRESET_BREAKS = [
-  { breakType: 'Tea Break', limit: 15 },
-  { breakType: 'Lunch Break', limit: 45 },
-  { breakType: 'Evening Break', limit: 15 },
-  { breakType: 'Quick Break', limit: 15 },
-];
 
 const calculateBreakDuration = (item) => {
   if (item.calculatedLimit) return item.calculatedLimit;
@@ -193,11 +188,8 @@ const Layout = () => {
     showRoute('/take-break') ||
     showRoute('/my-payroll') ||
     showRoute('/my-documents') ||
-    showRoute('/my-work-report');
-
-  const hasWorkspace =
-    showRoute('/tasks') ||
-    showRoute('/mail/inbox');
+    showRoute('/my-work-report') ||
+    showRoute('/tasks');
 
   const hasCompany =
     showRoute('/announcements') ||
@@ -319,6 +311,13 @@ const Layout = () => {
     }
   }, []);
 
+  useEffect(() => {
+    fetchBreaks();
+    const handleBreaksUpdated = () => fetchBreaks();
+    window.addEventListener('teamhub:breaks-updated', handleBreaksUpdated);
+    return () => window.removeEventListener('teamhub:breaks-updated', handleBreaksUpdated);
+  }, [fetchBreaks]);
+
   const handleCheckIn = async () => {
     setPunchLoading(true);
     try {
@@ -431,9 +430,7 @@ const Layout = () => {
     }
   };
 
-  const availableBreaks = useMemo(() => (
-    dailyBreaks.length > 0 ? dailyBreaks : DEFAULT_PRESET_BREAKS
-  ), [dailyBreaks]);
+  const availableBreaks = useMemo(() => dailyBreaks, [dailyBreaks]);
 
   const handleLogout = async () => {
     const accepted = await feedback.confirm('End your current ERP session?', {
@@ -1251,32 +1248,14 @@ const Layout = () => {
                       <span>My Work Report</span>
                     </NavLink>
                   )}
-                </div>
-              </div>
-            )}
 
-            {/* 4. WORKSPACE & PRODUCTIVITY */}
-            {hasWorkspace && (
-              <div>
-                <div className="erp-sb-section-title">WORKSPACE</div>
-                <div className="space-y-1">
                   {showRoute('/tasks') && (
                     <NavLink
                       to="/tasks"
                       className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
                     >
                       <CheckSquare size={16} />
-                      <span>Tasks</span>
-                    </NavLink>
-                  )}
-
-                  {showRoute('/mail/inbox') && (
-                    <NavLink
-                      to="/mail/inbox"
-                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                    >
-                      <Mail size={16} />
-                      <span>Mailbox</span>
+                      <span>My Tasks</span>
                     </NavLink>
                   )}
                 </div>
@@ -1464,13 +1443,31 @@ const Layout = () => {
                 {attendanceStatus.loading ? (
                   <div className="h-8 w-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse hidden xs:block" />
                 ) : attendanceStatus.isShiftCompleted ? (
-                  <div
-                    className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1.5 select-none"
-                    title="Shift completed for today"
-                  >
-                    <Check size={13} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
-                    <span>Shift Done</span>
-                  </div>
+                  attendanceStatus.isLatePenalty ? (
+                    <div
+                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 flex items-center gap-1.5 select-none"
+                      title="3rd late check-in penalty: 4.5 hours cut (Half Day)"
+                    >
+                      <Clock size={13} className="text-rose-600 dark:text-rose-400 stroke-[2.5]" />
+                      <span>Half Day (3rd Late)</span>
+                    </div>
+                  ) : attendanceStatus.isEarlyCheckout ? (
+                    <div
+                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 flex items-center gap-1.5 select-none"
+                      title="Checked out early (< 7 hours - Half Day)"
+                    >
+                      <Clock size={13} className="text-amber-600 dark:text-amber-400 stroke-[2.5]" />
+                      <span>Early Checkout</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1.5 select-none"
+                      title="Shift completed for today"
+                    >
+                      <Check size={13} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+                      <span>Shift Done</span>
+                    </div>
+                  )
                 ) : !attendanceStatus.isPunchedIn ? (
                   <button
                     type="button"
@@ -1549,6 +1546,20 @@ const Layout = () => {
                           </span>
                         </div>
 
+                        {/* Late Warning / Deduction Notice */}
+                        {attendanceStatus.isLatePenalty && (
+                          <div className="px-3 py-1.5 mb-2 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200/80 dark:border-rose-800/60 text-[11px] text-rose-700 dark:text-rose-300 font-medium flex items-center gap-1.5">
+                            <Clock size={13} className="shrink-0 text-rose-500" />
+                            <span>3rd late check-in: 4.5h half-day deduction applied.</span>
+                          </div>
+                        )}
+                        {!attendanceStatus.isLatePenalty && attendanceStatus.isLateCheckIn && (
+                          <div className="px-3 py-1.5 mb-2 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1.5">
+                            <Clock size={13} className="shrink-0 text-amber-500" />
+                            <span>Late check-in recorded ({attendanceStatus.lateCountInMonth}/3 toward half-day cut).</span>
+                          </div>
+                        )}
+
                         {/* Breaks Section */}
                         <div className="mb-2">
                           {activeBreak ? (
@@ -1590,7 +1601,7 @@ const Layout = () => {
                                     <Loader2 size={13} className="animate-spin" />
                                     Loading breaks...
                                   </div>
-                                ) : (
+                                ) : availableBreaks.length > 0 ? (
                                   availableBreaks.map((item, idx) => {
                                     const duration = calculateBreakDuration(item);
                                     return (
@@ -1617,6 +1628,10 @@ const Layout = () => {
                                       </button>
                                     );
                                   })
+                                ) : (
+                                  <div className="py-3 px-2 text-center text-xs text-slate-400">
+                                    No breaks defined in Daily Break Administration
+                                  </div>
                                 )}
                               </div>
 
@@ -1762,15 +1777,6 @@ const Layout = () => {
                 </div>
               )}
             </div>
-
-            <button
-              type="button"
-              onClick={() => navigate('/mail/inbox')}
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Mailbox"
-            >
-              <Mail size={18} />
-            </button>
 
             {/* Profile Avatar Pill */}
             <div className="relative ml-1" ref={profileRef}>

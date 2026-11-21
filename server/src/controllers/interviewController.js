@@ -6,22 +6,39 @@ const pick = require('../utils/pick');
 const { writeAuditLog } = require('../services/auditService');
 
 const FIELDS = [
-  'entryDate', 'candidateName', 'status', 'interviewDate', 'candidatePost', 'interviewTime',
-  'phoneNumber', 'firstRoundBy', 'secondRoundBy', 'candidateDOB', 'email', 'replyStatus',
-  'joiningDateProvided', 'candidateJoinedOn', 'trainingStatus', 'remarks', 'salaryStructure',
-  'incentiveStructure', 'firstMailStatus', 'finalMailStatus',
+  'entryDate', 'candidateName', 'stage', 'status', 'candidateReference', 'reference', 'branch', 'interviewDate',
+  'candidatePost', 'interviewTime', 'phoneNumber', 'firstRoundBy', 'secondRoundBy', 'candidateDOB',
+  'email', 'replyStatus', 'joiningDateProvided', 'candidateJoinedOn', 'trainingStatus',
+  'gender', 'maritalStatus', 'address', 'experience', 'experienceType', 'cvUrl', 'interviewScore',
+  'remarks', 'comments', 'salaryStructure', 'incentiveStructure', 'firstMailStatus', 'finalMailStatus',
+  'stageNotes',
 ];
 
 const normalizePayload = (body) => {
   const payload = pick(body, FIELDS);
   if (payload.candidateName !== undefined) payload.candidateName = validators.requiredString(payload.candidateName, 'candidateName', { max: 120 });
-  if (payload.status !== undefined) payload.status = validators.enumValue(payload.status, Interview.statuses, 'status');
-  if (payload.email) payload.email = validators.email(payload.email);
+  if (payload.status !== undefined) {
+    payload.status = validators.enumValue(payload.status, Interview.statuses, 'status');
+    payload.stage = Interview.getStageForStatus(payload.status);
+  } else if (payload.stage !== undefined) {
+    payload.stage = validators.enumValue(payload.stage, Interview.stages, 'stage');
+  }
+  if (payload.comments && !payload.remarks) payload.remarks = payload.comments;
+  if (payload.remarks && !payload.comments) payload.comments = payload.remarks;
+  if (payload.email !== undefined) {
+    const trimmed = String(payload.email || '').trim();
+    if (!trimmed) {
+      delete payload.email;
+    } else {
+      payload.email = validators.email(trimmed);
+    }
+  }
   return payload;
 };
 
 const getInterviews = asyncHandler(async (req, res) => {
   const query = {};
+  if (req.query.stage) query.stage = req.query.stage;
   if (req.query.status) query.status = req.query.status;
   if (req.query.search) query.$text = { $search: String(req.query.search).trim() };
   const interviews = await Interview.find(query).sort({ entryDate: -1, createdAt: -1 }).lean();

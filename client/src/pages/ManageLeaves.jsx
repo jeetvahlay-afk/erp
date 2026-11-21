@@ -3,11 +3,13 @@ import {
   BadgeCheck,
   Calendar,
   CalendarClock,
-  CalendarDays,
   Check,
   CircleX,
+  Clock,
   Download,
+  History,
   RotateCcw,
+  Users,
   X,
 } from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
@@ -30,8 +32,9 @@ import {
 
 const ManageLeaves = () => {
   const [leaves, setLeaves] = useState([]);
+  const [tab, setTab] = useState('pending'); // 'pending' | 'history' | 'all'
+  const [historyFilter, setHistoryFilter] = useState('all'); // 'all' | 'Approved' | 'Rejected'
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
   const [type, setType] = useState('');
   const [selected, setSelected] = useState(null);
   const [decision, setDecision] = useState('Approved');
@@ -57,17 +60,35 @@ const ManageLeaves = () => {
     load();
   }, []);
 
+  const counts = useMemo(() => {
+    const res = { Pending: 0, Approved: 0, Rejected: 0 };
+    leaves.forEach((leave) => {
+      if (res[leave.status] !== undefined) res[leave.status] += 1;
+      else res[leave.status] = 1;
+    });
+    return res;
+  }, [leaves]);
+
+  const historyCount = (counts.Approved || 0) + (counts.Rejected || 0);
+
   const filtered = useMemo(() => {
     return leaves.filter((leave) => {
+      if (tab === 'pending') {
+        if (leave.status !== 'Pending') return false;
+      } else if (tab === 'history') {
+        if (leave.status === 'Pending') return false;
+        if (historyFilter !== 'all' && leave.status !== historyFilter) return false;
+      }
+
       const query = search.trim().toLowerCase();
       const matchesSearch =
         !query ||
-        [leave.user?.name, leave.user?.employeeId, leave.user?.department, leave.leaveType].some(
+        [leave.user?.name, leave.user?.employeeId, leave.user?.department, leave.leaveType, leave.reason, leave.adminResponse].some(
           (value) => String(value || '').toLowerCase().includes(query)
         );
-      return matchesSearch && (!status || leave.status === status) && (!type || leave.leaveType === type);
+      return matchesSearch && (!type || leave.leaveType === type);
     });
-  }, [leaves, search, status, type]);
+  }, [leaves, tab, historyFilter, search, type]);
 
   const openDecision = (leave, action) => {
     setSelected(leave);
@@ -95,17 +116,12 @@ const ManageLeaves = () => {
 
   const resetFilters = () => {
     setSearch('');
-    setStatus('');
     setType('');
+    setHistoryFilter('all');
   };
 
   if (loading) return <LoadingState label="Loading leave approvals…" />;
   if (error) return <ErrorState message={error} retry={load} />;
-
-  const counts = leaves.reduce((map, leave) => {
-    map[leave.status] = (map[leave.status] || 0) + 1;
-    return map;
-  }, {});
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 space-y-4 sm:space-y-4.5 w-full max-w-[1920px] mx-auto text-slate-800 dark:text-slate-100 pb-10">
@@ -114,54 +130,181 @@ const ManageLeaves = () => {
         title="Leave Management"
         breadcrumbs={['Attendance & Leaves', 'Leave Management']}
         actions={
-          <ToolbarButton icon={Download} onClick={() => downloadCsv('leave-management.csv', filtered)}>
+          <ToolbarButton icon={Download} onClick={() => downloadCsv(`leave-${tab}.csv`, filtered)}>
             Export CSV
           </ToolbarButton>
         }
       />
 
-      {/* 2. Top 4 Metric KPI Cards */}
+      {/* 2. Top 4 Metric KPI Cards with Quick Tab Select */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
         <MetricCard
           label="Pending Requests"
           value={counts.Pending || 0}
-          helper="Awaiting management decision"
+          helper="Awaiting your approval or rejection"
           icon={CalendarClock}
           tone="amber"
+          onClick={() => {
+            setTab('pending');
+            setHistoryFilter('all');
+          }}
+          className="cursor-pointer hover:border-amber-300 transition-colors"
         />
         <MetricCard
           label="Approved Requests"
           value={counts.Approved || 0}
-          helper="Approved leave workflow"
+          helper="Successfully approved leaves"
           icon={BadgeCheck}
           tone="green"
+          onClick={() => {
+            setTab('history');
+            setHistoryFilter('Approved');
+          }}
+          className="cursor-pointer hover:border-emerald-300 transition-colors"
         />
         <MetricCard
           label="Rejected Requests"
           value={counts.Rejected || 0}
-          helper="Rejected leave applications"
+          helper="Declined leave applications"
           icon={CircleX}
           tone="red"
+          onClick={() => {
+            setTab('history');
+            setHistoryFilter('Rejected');
+          }}
+          className="cursor-pointer hover:border-rose-300 transition-colors"
         />
         <MetricCard
-          label="Total Requests"
-          value={leaves.length}
-          helper="All recorded leave requests"
-          icon={CalendarDays}
+          label="Leave History Records"
+          value={historyCount}
+          helper="All decided leave applications"
+          icon={History}
           tone="blue"
+          onClick={() => {
+            setTab('history');
+            setHistoryFilter('all');
+          }}
+          className="cursor-pointer hover:border-blue-300 transition-colors"
         />
       </div>
 
-      {/* 3. Table with Toolbar */}
+      {/* 3. Navigation Tabs Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              setTab('pending');
+              setHistoryFilter('all');
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              tab === 'pending'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Clock size={14} className={tab === 'pending' ? 'text-amber-500' : 'text-slate-400'} />
+            <span>Pending Requests</span>
+            <span
+              className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                tab === 'pending'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {counts.Pending || 0}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTab('history');
+              setHistoryFilter('all');
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              tab === 'history'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <History size={14} className={tab === 'history' ? 'text-blue-600' : 'text-slate-400'} />
+            <span>Leave History</span>
+            <span
+              className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                tab === 'history'
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {historyCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTab('all');
+              setHistoryFilter('all');
+            }}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              tab === 'all'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Users size={14} className={tab === 'all' ? 'text-indigo-600' : 'text-slate-400'} />
+            <span>All Requests</span>
+            <span
+              className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                tab === 'all'
+                  ? 'bg-indigo-100 text-indigo-800'
+                  : 'bg-slate-200 text-slate-700'
+              }`}
+            >
+              {leaves.length}
+            </span>
+          </button>
+        </div>
+
+        {tab === 'history' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 font-medium">History Filter:</span>
+            <select
+              value={historyFilter}
+              onChange={(e) => setHistoryFilter(e.target.value)}
+              className="bg-white border border-slate-200/80 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
+            >
+              <option value="all">All History ({historyCount})</option>
+              <option value="Approved">Approved Leaves ({counts.Approved || 0})</option>
+              <option value="Rejected">Rejected Leaves ({counts.Rejected || 0})</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* 4. Table Shell with Content */}
       <TableShell
-        title="Leave Applications"
-        summary={`${filtered.length} matching applications`}
+        title={
+          tab === 'pending'
+            ? `Pending Leave Requests (${filtered.length})`
+            : tab === 'history'
+            ? `Leave Decision History (${filtered.length})`
+            : `All Leave Applications (${filtered.length})`
+        }
+        summary={
+          tab === 'pending'
+            ? 'Requests awaiting management approval or rejection'
+            : tab === 'history'
+            ? 'Archived record of approved and rejected leave applications'
+            : 'Complete directory of all employee leave applications'
+        }
         toolbar={
           <>
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search employee, leave type..."
+              placeholder="Search employee, leave type, reason..."
             />
             <select
               className="bg-white border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
@@ -175,17 +318,7 @@ const ManageLeaves = () => {
                 )
               )}
             </select>
-            <select
-              className="bg-white border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option value="">All Statuses</option>
-              <option>Pending</option>
-              <option>Approved</option>
-              <option>Rejected</option>
-            </select>
-            {(search || status || type) && (
+            {(search || type || (tab === 'history' && historyFilter !== 'all')) && (
               <button
                 type="button"
                 onClick={resetFilters}
@@ -210,13 +343,18 @@ const ManageLeaves = () => {
                 <th className="py-2.5 px-2.5">DAYS</th>
                 <th className="py-2.5 px-2.5">REASON</th>
                 <th className="py-2.5 px-2.5">STATUS</th>
-                <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTION</th>
+                {tab !== 'pending' && <th className="py-2.5 px-2.5">ADMIN REMARKS</th>}
+                <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
+                  {tab === 'pending' ? 'DECISION' : 'PROCESSED'}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {filtered.map((leave) => {
                 const days =
                   Math.floor((new Date(leave.endDate) - new Date(leave.startDate)) / 86400000) + 1;
+                const isPending = leave.status === 'Pending';
+
                 return (
                   <tr key={leave._id} className="hover:bg-slate-50/80 transition-colors">
                     {/* Employee */}
@@ -266,29 +404,38 @@ const ManageLeaves = () => {
                       <StatusBadge>{leave.status}</StatusBadge>
                     </td>
 
-                    {/* Action */}
+                    {/* Admin remarks in history / all */}
+                    {tab !== 'pending' && (
+                      <td className="py-2.5 px-2.5 max-w-[200px] text-slate-600 truncate">
+                        {leave.adminResponse || '—'}
+                      </td>
+                    )}
+
+                    {/* Action or Processed indicator */}
                     <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
-                      {leave.status === 'Pending' ? (
+                      {isPending ? (
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => openDecision(leave, 'Approved')}
-                            className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer text-xs font-semibold"
                             title="Approve leave"
                           >
-                            <Check size={14} />
+                            <Check size={13} /> Approve
                           </button>
                           <button
                             type="button"
                             onClick={() => openDecision(leave, 'Rejected')}
-                            className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer text-xs font-semibold"
                             title="Reject leave"
                           >
-                            <X size={14} />
+                            <X size={13} /> Reject
                           </button>
                         </div>
                       ) : (
-                        <span className="text-[11px] text-slate-400 font-medium">Processed</span>
+                        <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap">
+                          {formatDate(leave.updatedAt || leave.createdAt)}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -298,8 +445,18 @@ const ManageLeaves = () => {
           </table>
         ) : (
           <EmptyState
-            title="No leave requests found"
-            message="No leave requests match the current filters."
+            title={
+              tab === 'pending'
+                ? 'No pending leave requests'
+                : tab === 'history'
+                ? 'No leave history found'
+                : 'No leave applications found'
+            }
+            message={
+              tab === 'pending'
+                ? 'All employee leave applications have been reviewed.'
+                : 'No past leave records match the selected filters.'
+            }
           />
         )}
       </TableShell>

@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CalendarCheck,
   CalendarDays,
+  CheckCircle2,
+  Clock,
+  ListTodo,
   LockKeyhole,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import api, { asArray, getApiError } from '../lib/api';
 import {
   Avatar,
+  EmptyState,
   ErrorState,
   formatDate,
   LoadingState,
@@ -15,16 +19,30 @@ import {
   Modal,
   PageHeader,
   StatusBadge,
+  TableShell,
   ToolbarButton,
 } from '../components/ui/EnterpriseUI';
 import { monthCalendar } from '../utils/workReportCalendar';
 
 const currentMonth = () => new Date().toLocaleDateString('en-CA').slice(0, 7);
 
+const priorityTone = (priority) => {
+  if (priority === 'high') return 'red';
+  if (priority === 'medium') return 'amber';
+  return 'slate';
+};
+
+const statusTone = (status) => {
+  if (status === 'completed') return 'green';
+  if (status === 'in progress') return 'blue';
+  return 'amber';
+};
+
 const WorkReportDetails = () => {
   const { userId } = useParams();
   const [employee, setEmployee] = useState(null);
   const [reports, setReports] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [month, setMonth] = useState(currentMonth());
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -34,10 +52,12 @@ const WorkReportDetails = () => {
     Promise.all([
       api.get(`/api/users/${userId}`),
       api.get(`/api/work-reports?userId=${userId}`),
+      api.get(`/api/tasks?userId=${userId}`),
     ])
-      .then(([userResponse, reportsResponse]) => {
+      .then(([userResponse, reportsResponse, tasksResponse]) => {
         setEmployee(userResponse.data);
         setReports(asArray(reportsResponse.data));
+        setTasks(asArray(tasksResponse.data));
       })
       .catch((e) => setError(getApiError(e, 'Unable to load employee work reports')))
       .finally(() => setLoading(false));
@@ -52,6 +72,21 @@ const WorkReportDetails = () => {
   );
   const [year, monthNumber] = month.split('-').map(Number);
   const calendar = monthCalendar(new Date(year, monthNumber - 1, 1));
+
+  const completedTasks = useMemo(
+    () => tasks.filter((t) => t.status === 'completed'),
+    [tasks]
+  );
+
+  const selectedDateTasks = useMemo(() => {
+    if (!selected?.date) return [];
+    const dateStr = String(selected.date).slice(0, 10);
+    return tasks.filter((t) => {
+      const dueStr = t.dueDate ? String(t.dueDate).slice(0, 10) : '';
+      const compStr = t.completedAt ? String(t.completedAt).slice(0, 10) : '';
+      return dueStr === dateStr || compStr === dateStr;
+    });
+  }, [selected, tasks]);
 
   if (loading) return <LoadingState label="Loading employee report calendar…" />;
   if (error) return <ErrorState message={error} />;
@@ -79,7 +114,7 @@ const WorkReportDetails = () => {
       {/* 2. Employee Profile & KPI Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-3.5">
         {/* Employee Summary Card */}
-        <div className="lg:col-span-5 bg-white rounded-xl border border-slate-200/80 p-3.5 sm:p-4 shadow-2xs flex items-center gap-3.5">
+        <div className="lg:col-span-4 bg-white rounded-xl border border-slate-200/80 p-3.5 sm:p-4 shadow-2xs flex items-center gap-3.5">
           <Avatar user={employee} size="md" />
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-slate-900 truncate">
@@ -90,27 +125,41 @@ const WorkReportDetails = () => {
             </p>
             <div className="mt-2 flex items-center gap-2">
               <StatusBadge>{employee?.department || 'Unassigned'}</StatusBadge>
-              <span className="text-[11px] text-slate-400 font-medium">
+              <span className="text-[11px] text-slate-400 font-medium truncate">
                 {employee?.email}
               </span>
             </div>
           </div>
         </div>
 
-        {/* 2 KPIs */}
-        <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5">
+        {/* 4 KPIs */}
+        <div className="lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-3.5">
           <MetricCard
-            label="Month Submissions"
+            label="Month Reports"
             value={monthReports.length}
-            helper="Reports logged this selected month"
+            helper="Submitted this month"
             icon={CalendarCheck}
             tone="blue"
           />
           <MetricCard
-            label="Total Logged History"
+            label="Total Reports"
             value={reports.length}
-            helper="All-time recorded reports"
+            helper="All-time history"
             icon={CalendarDays}
+            tone="purple"
+          />
+          <MetricCard
+            label="Daily Tasks"
+            value={tasks.length}
+            helper="Assigned daily tasks"
+            icon={ListTodo}
+            tone="amber"
+          />
+          <MetricCard
+            label="Completed Tasks"
+            value={completedTasks.length}
+            helper={`${tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0}% completion`}
+            icon={CheckCircle2}
             tone="green"
           />
         </div>
@@ -131,7 +180,7 @@ const WorkReportDetails = () => {
                 })}
               </h2>
               <p className="text-xs text-slate-500">
-                Click any submitted day to inspect employee accomplishments and deliverables.
+                Click any submitted day to inspect employee accomplishments, deliverables, and tasks.
               </p>
             </div>
           </div>
@@ -202,10 +251,80 @@ const WorkReportDetails = () => {
         </div>
       </div>
 
-      {/* 4. Details Modal */}
+      {/* 4. Employee's Assigned Daily Tasks Section */}
+      <TableShell
+        title={`Assigned Daily Tasks (${tasks.length})`}
+        subtitle={`Current and scheduled daily deliverables for ${employee?.name || 'this employee'}`}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[700px]">
+            <thead>
+              <tr className="border-b border-slate-200/80 bg-slate-50/75 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <th className="py-3 px-4">Task Title & Description</th>
+                <th className="py-3 px-4">Priority</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Due Date</th>
+                <th className="py-3 px-4">Completed On</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs">
+              {tasks.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8">
+                    <EmptyState
+                      title="No daily tasks assigned"
+                      description="No active or past daily tasks have been assigned to this employee."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                tasks.map((task) => (
+                  <tr key={task._id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 px-4">
+                      <p className="font-semibold text-slate-900">{task.title}</p>
+                      {task.description && (
+                        <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                          {task.description}
+                        </p>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <StatusBadge tone={priorityTone(task.priority)}>
+                        {task.priority || 'medium'}
+                      </StatusBadge>
+                    </td>
+                    <td className="py-3 px-4">
+                      <StatusBadge tone={statusTone(task.status)}>
+                        {task.status || 'pending'}
+                      </StatusBadge>
+                    </td>
+                    <td className="py-3 px-4 text-slate-600 font-medium">
+                      {task.dueDate ? formatDate(task.dueDate) : '—'}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500">
+                      {task.completedAt ? (
+                        <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                          <CheckCircle2 size={13} />
+                          {formatDate(task.completedAt)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 flex items-center gap-1">
+                          <Clock size={12} /> Pending
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </TableShell>
+
+      {/* 5. Details Modal */}
       <Modal
         open={Boolean(selected)}
-        title="Employee Work Notes"
+        title="Employee Work Report & Daily Tasks"
         subtitle={
           selected
             ? `${employee?.name} · ${formatDate(selected.date)} · View only`
@@ -217,11 +336,65 @@ const WorkReportDetails = () => {
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Reported Accomplishments & Tasks
+              Reported Accomplishments
             </label>
-            <div className="w-full bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-wrap min-h-[160px]">
-              {selected?.accomplishments || 'No notes provided.'}
+            <div className="w-full bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-800 leading-relaxed font-normal whitespace-pre-wrap">
+              {selected?.accomplishments || 'No accomplishments notes provided.'}
             </div>
+          </div>
+
+          {selected?.blockers && (
+            <div>
+              <label className="block text-xs font-semibold text-rose-700 mb-1.5">
+                Blockers & Challenges
+              </label>
+              <div className="w-full bg-rose-50/50 border border-rose-200/80 rounded-xl p-3 text-xs text-rose-900 leading-relaxed whitespace-pre-wrap">
+                {selected.blockers}
+              </div>
+            </div>
+          )}
+
+          {selected?.nextPlan && (
+            <div>
+              <label className="block text-xs font-semibold text-blue-700 mb-1.5">
+                Plan for Next Day
+              </label>
+              <div className="w-full bg-blue-50/50 border border-blue-200/80 rounded-xl p-3 text-xs text-blue-900 leading-relaxed whitespace-pre-wrap">
+                {selected.nextPlan}
+              </div>
+            </div>
+          )}
+
+          {/* Daily tasks on this date */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Assigned Tasks on this Date ({selectedDateTasks.length})
+            </label>
+            {selectedDateTasks.length === 0 ? (
+              <p className="text-xs text-slate-400 italic bg-slate-50 rounded-lg p-2.5 border border-slate-100">
+                No specific daily tasks were scheduled or completed on this date.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {selectedDateTasks.map((t) => (
+                  <div
+                    key={t._id}
+                    className="p-2.5 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900 truncate">{t.title}</p>
+                      {t.description && (
+                        <p className="text-[11px] text-slate-500 truncate">{t.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <StatusBadge tone={priorityTone(t.priority)}>{t.priority}</StatusBadge>
+                      <StatusBadge tone={statusTone(t.status)}>{t.status}</StatusBadge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </Modal>
