@@ -7,6 +7,7 @@ const {
   getUserAttendance,
   getMyAttendance,
   updateAttendanceRecord,
+  manualUpdateAttendance,
   getShiftStatus,
   extendShift,
 } = require('../controllers/attendanceController');
@@ -18,6 +19,7 @@ router.get('/me', protect, getMyAttendance);
 router.get('/live', protect, authorizeAccess({ roles: ['admin', 'super admin', 'hr'], permissions: ['attendance.read'] }), getLiveAttendance);
 router.get('/', protect, authorizeAccess({ roles: ['admin', 'super admin', 'hr'], permissions: ['attendance.read'] }), getAllAttendance);
 router.get('/user/:userId', protect, authorizeAccess({ roles: ['admin', 'super admin', 'hr'], permissions: ['attendance.read'] }), getUserAttendance);
+router.post('/manual-update', protect, authorizeAccess({ roles: ['admin', 'super admin', 'hr'], permissions: ['attendance.write'] }), manualUpdateAttendance);
 router.patch('/:id', protect, authorizeAccess({ roles: ['admin', 'super admin', 'hr'], permissions: ['attendance.write'] }), updateAttendanceRecord);
 router.post('/punch', protect, punchInOut);
 router.post('/punch-in', protect, (req, res, next) => {

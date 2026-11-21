@@ -133,9 +133,6 @@ const AdminDashboard = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
             Admin Dashboard
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 font-normal">
-            Organization overview, workforce, attendance and payroll insights.
-          </p>
         </div>
 
         {/* Date Selector Pill */}

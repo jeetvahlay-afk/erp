@@ -38,18 +38,7 @@ export const formatTime = (value) => {
 export const PageHeader = ({ title, eyebrow, breadcrumbs = [], actions, children }) => (
   <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3.5 sm:mb-4">
     <div className="min-w-0">
-      {eyebrow && <p className="text-[11px] font-semibold text-[#2563eb] dark:text-blue-400 uppercase tracking-wider mb-0.5">{eyebrow}</p>}
       <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{title}</h1>
-      {breadcrumbs.length > 0 && (
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal flex-nowrap whitespace-nowrap overflow-x-auto no-scrollbar py-0.5">
-          {breadcrumbs.map((item, index) => (
-            <span key={`${item}-${index}`} className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
-              {index > 0 && <ChevronRight size={12} className="text-slate-400 dark:text-slate-600 shrink-0" />}
-              <span>{item}</span>
-            </span>
-          ))}
-        </nav>
-      )}
       {children}
     </div>
     {actions && <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">{actions}</div>}

@@ -725,13 +725,15 @@ const ManageAttendance = ({ registerOnly = false }) => {
     setSelectedRecord(rec);
     const raw = rec.rawRecord;
     setEditForm({
-      status: rec.status,
+      status: rec.status || 'Present',
       loginTime: toLocalInput(raw?.loginTime),
       logoutTime: toLocalInput(raw?.logoutTime),
+      reason: raw?.manualOverrideReason || '',
     });
   };
 
   const saveEdit = async () => {
+    if (!selectedRecord) return;
     setSubmitting(true);
     try {
       if (selectedRecord.rawRecord?._id) {
@@ -739,9 +741,19 @@ const ManageAttendance = ({ registerOnly = false }) => {
           status: editForm.status,
           loginTime: editForm.loginTime || null,
           logoutTime: editForm.logoutTime || null,
+          reason: editForm.reason || 'Manual attendance update by admin',
+        });
+      } else {
+        await api.post('/api/attendance/manual-update', {
+          userId: selectedRecord.userId || selectedRecord.user?._id || selectedRecord._id,
+          date: selectedRecord.dateKey || selectedRecord.date || new Date(),
+          status: editForm.status,
+          loginTime: editForm.loginTime || null,
+          logoutTime: editForm.logoutTime || null,
+          reason: editForm.reason || 'Manual attendance update by admin',
         });
       }
-      feedback.success('Attendance record updated');
+      feedback.success(`Attendance updated for ${selectedRecord.name || 'employee'} (Audit log saved)`);
       setSelectedRecord(null);
       load();
     } catch (err) {
@@ -778,9 +790,6 @@ const ManageAttendance = ({ registerOnly = false }) => {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
             Attendance Management
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
-            View, inspect, and export employee attendance across List, Sheet, and Calendar views.
-          </p>
         </div>
 
         {/* View Switcher Controls & Action Buttons */}
@@ -853,6 +862,16 @@ const ManageAttendance = ({ registerOnly = false }) => {
           >
             <Download size={14} />
             <span>Export</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/audit-logs')}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 font-semibold text-xs px-3.5 py-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 shadow-2xs flex items-center gap-2 transition-colors cursor-pointer"
+            title="View Security & Attendance Audit Trail"
+          >
+            <Fingerprint size={14} className="text-blue-500" />
+            <span>Audit Trail</span>
           </button>
 
           <button
@@ -1230,17 +1249,24 @@ const ManageAttendance = ({ registerOnly = false }) => {
                         {/* Employee Avatar + Name + Email */}
                         <td className="py-2.5 px-2.5">
                           <div className="flex items-center gap-3">
-                            {rec.avatar ? (
-                              <img
-                                src={rec.avatar}
-                                alt={rec.name}
-                                className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs flex items-center justify-center ring-1 ring-slate-200 dark:ring-slate-700 shrink-0">
+                            <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 ring-1 ring-slate-200 dark:ring-slate-700 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                              {rec.avatar ? (
+                                <img
+                                  src={rec.avatar}
+                                  alt={rec.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    if (e.currentTarget.nextElementSibling) {
+                                      e.currentTarget.nextElementSibling.style.display = 'flex';
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                              <span className={`w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs ${rec.avatar ? 'hidden' : 'flex'}`}>
                                 {rec.name?.slice(0, 2).toUpperCase()}
-                              </div>
-                            )}
+                              </span>
+                            </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <button
@@ -1321,13 +1347,23 @@ const ManageAttendance = ({ registerOnly = false }) => {
                             </span>
                           )}
                           {rec.status === 'Late' && (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#fffbeb] dark:bg-amber-950/60 text-[#d97706] dark:text-amber-400 border border-amber-200 dark:border-amber-800"
-                              title={rec.lateMinutes ? `${rec.lateMinutes} mins late after grace period` : 'Late check-in'}
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />
-                              Late{rec.lateMinutes ? ` (${rec.lateMinutes}m)` : ''}
-                            </span>
+                            <div className="flex flex-col items-start gap-0.5">
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#fffbeb] dark:bg-amber-950/60 text-[#d97706] dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                                title={rec.lateMinutes ? `${rec.lateMinutes} mins late after grace period` : 'Late check-in'}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />
+                                Late{rec.lateMinutes ? ` (${rec.lateMinutes}m)` : ''}
+                              </span>
+                              {rec.rawRecord?.lateReason && (
+                                <span
+                                  className="text-[10px] text-slate-500 dark:text-slate-400 max-w-[150px] truncate cursor-help"
+                                  title={`Late Reason: ${rec.rawRecord.lateReason}`}
+                                >
+                                  "{rec.rawRecord.lateReason}"
+                                </span>
+                              )}
+                            </div>
                           )}
                           {rec.status === 'Half Day' && (
                             <span
@@ -1533,17 +1569,24 @@ const ManageAttendance = ({ registerOnly = false }) => {
                           {/* Sticky Employee Column */}
                           <td className="sticky left-0 z-10 bg-white dark:bg-slate-900 px-3 py-2 text-left border-r border-slate-200/80 dark:border-slate-800 shadow-xs">
                             <div className="flex items-center gap-2">
-                              {emp.avatar ? (
-                                <img
-                                  src={emp.avatar}
-                                  alt={emp.name}
-                                  className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                                />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] flex items-center justify-center ring-1 ring-slate-200 dark:ring-slate-700 shrink-0">
+                              <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 ring-1 ring-slate-200 dark:ring-slate-700 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                {emp.avatar ? (
+                                  <img
+                                    src={emp.avatar}
+                                    alt={emp.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      if (e.currentTarget.nextElementSibling) {
+                                        e.currentTarget.nextElementSibling.style.display = 'flex';
+                                      }
+                                    }}
+                                  />
+                                ) : null}
+                                <span className={`w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] ${emp.avatar ? 'hidden' : 'flex'}`}>
                                   {emp.name?.slice(0, 2).toUpperCase()}
-                                </div>
-                              )}
+                                </span>
+                              </div>
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-bold text-slate-900 dark:text-white block leading-tight text-xs truncate max-w-[130px]">
@@ -1610,13 +1653,25 @@ const ManageAttendance = ({ registerOnly = false }) => {
                               );
                             }
 
-                            // No attendance record found for this day
+                            // No attendance record found for this day - generate clickable fallback
+                            const isPastOrToday = dayObj.dateKey <= todayKey;
+                            const fallbackRec = {
+                              userId: emp.id,
+                              name: emp.name,
+                              department: emp.department,
+                              date: dayObj.dateKey,
+                              dateKey: dayObj.dateKey,
+                              status: isPastOrToday ? (emp.isTrainee ? 'Present' : 'Absent') : 'Present',
+                              rawRecord: null,
+                            };
+
                             if (dayObj.isWeekend) {
                               return (
                                 <td
                                   key={dayObj.dayNumber}
-                                  className="p-1 border-r border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-slate-300 dark:text-slate-600 font-medium text-[10px]"
-                                  title="Weekend"
+                                  onClick={() => openEditModal({ ...fallbackRec, status: 'Present' })}
+                                  className="p-1 border-r border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-slate-300 dark:text-slate-600 font-medium text-[10px] cursor-pointer hover:bg-blue-50/50"
+                                  title={`Weekend (${dayObj.dateKey}) — Click to mark attendance for ${emp.name}`}
                                 >
                                   WO
                                 </td>
@@ -1624,15 +1679,15 @@ const ManageAttendance = ({ registerOnly = false }) => {
                             }
 
                             // Weekday with no record
-                            const isPastOrToday = dayObj.dateKey <= todayKey;
                             if (isPastOrToday) {
                               if (emp.isTrainee) {
                                 pTotal++;
                                 return (
                                   <td
                                     key={dayObj.dayNumber}
-                                    className="p-1 border-r border-slate-100 dark:border-slate-800"
-                                    title={`${emp.name} — ${dayObj.dateKey}: Trainee Session Present`}
+                                    onClick={() => openEditModal(fallbackRec)}
+                                    className="p-1 border-r border-slate-100 dark:border-slate-800 cursor-pointer"
+                                    title={`${emp.name} — ${dayObj.dateKey}: Trainee Session Present [Click to update]`}
                                   >
                                     <span className="inline-flex items-center justify-center w-6 h-6 rounded text-[10px] font-bold border transition-transform hover:scale-110 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-700">
                                       P
@@ -1645,8 +1700,9 @@ const ManageAttendance = ({ registerOnly = false }) => {
                               return (
                                 <td
                                   key={dayObj.dayNumber}
-                                  className="p-1 border-r border-slate-100 dark:border-slate-800"
-                                  title={`${emp.name} — ${dayObj.dateKey}: Absent (No punch record)`}
+                                  onClick={() => openEditModal(fallbackRec)}
+                                  className="p-1 border-r border-slate-100 dark:border-slate-800 cursor-pointer"
+                                  title={`${emp.name} — ${dayObj.dateKey}: Absent (No punch record) [Click to update]`}
                                 >
                                   <span className="inline-flex items-center justify-center w-6 h-6 rounded text-[10px] font-bold border transition-transform hover:scale-110 bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-700">
                                     A
@@ -1658,7 +1714,9 @@ const ManageAttendance = ({ registerOnly = false }) => {
                             return (
                               <td
                                 key={dayObj.dayNumber}
-                                className="p-1 border-r border-slate-100 dark:border-slate-800 text-slate-300 dark:text-slate-600 font-normal"
+                                onClick={() => openEditModal(fallbackRec)}
+                                className="p-1 border-r border-slate-100 dark:border-slate-800 text-slate-300 dark:text-slate-600 font-normal cursor-pointer hover:bg-blue-50/50"
+                                title={`${emp.name} — ${dayObj.dateKey}: Click to schedule or mark attendance`}
                               >
                                 —
                               </td>
@@ -1846,17 +1904,24 @@ const ManageAttendance = ({ registerOnly = false }) => {
                         </td>
                         <td className="py-2.5 px-2.5">
                           <div className="flex items-center gap-2.5">
-                            {rec.avatar ? (
-                              <img
-                                src={rec.avatar}
-                                alt={rec.name}
-                                className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] flex items-center justify-center ring-1 ring-slate-200 dark:ring-slate-700 shrink-0">
+                            <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 ring-1 ring-slate-200 dark:ring-slate-700 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                              {rec.avatar ? (
+                                <img
+                                  src={rec.avatar}
+                                  alt={rec.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    if (e.currentTarget.nextElementSibling) {
+                                      e.currentTarget.nextElementSibling.style.display = 'flex';
+                                    }
+                                  }}
+                                />
+                              ) : null}
+                              <span className={`w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] ${rec.avatar ? 'hidden' : 'flex'}`}>
                                 {rec.name?.slice(0, 2).toUpperCase()}
-                              </div>
-                            )}
+                              </span>
+                            </div>
                             <div>
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-bold text-slate-900 dark:text-white block leading-tight">
@@ -1928,20 +1993,14 @@ const ManageAttendance = ({ registerOnly = false }) => {
                           )}
                         </td>
                         <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
-                          {rec.rawRecord?._id ? (
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(rec)}
-                              className="w-8 h-8 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer"
-                              title="Edit Attendance"
-                            >
-                              <Edit3 size={15} />
-                            </button>
-                          ) : (
-                            <span className="text-[11px] text-slate-300 dark:text-slate-600 select-none px-2 py-1">
-                              —
-                            </span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(rec)}
+                            className="w-8 h-8 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer"
+                            title={`Update Attendance for ${rec.name}`}
+                          >
+                            <Edit3 size={15} />
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -1956,45 +2015,97 @@ const ManageAttendance = ({ registerOnly = false }) => {
       {/* Edit Attendance Modal */}
       <Modal
         open={Boolean(selectedRecord)}
-        title="Edit Attendance Record"
-        subtitle={selectedRecord?.name}
+        title="Update Attendance Status"
+        subtitle={
+          selectedRecord ? (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 flex-wrap">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedRecord.name}</span>
+              <span>•</span>
+              <span className="text-slate-600 dark:text-slate-300 font-medium">
+                {selectedRecord.dateKey || (selectedRecord.date ? new Date(selectedRecord.date).toISOString().slice(0, 10) : 'Today')}
+              </span>
+              <span>•</span>
+              <span className="text-blue-600 dark:text-blue-400 font-medium">{selectedRecord.department || 'Staff'}</span>
+            </div>
+          ) : null
+        }
         onClose={() => setSelectedRecord(null)}
         footer={
           <>
             <ToolbarButton onClick={() => setSelectedRecord(null)}>Cancel</ToolbarButton>
             <ToolbarButton primary disabled={submitting} onClick={saveEdit}>
-              {submitting ? 'Saving…' : 'Save Changes'}
+              {submitting ? 'Saving & Logging…' : 'Save & Log Update'}
             </ToolbarButton>
           </>
         }
       >
-        <div className="erp-form-grid">
-          <div className="erp-field span-2">
-            <label>Status</label>
-            <select
-              value={editForm.status}
-              onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-            >
-              {['Present', 'Late', 'Half Day', 'Absent'].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
+        <div className="space-y-4 text-xs">
+          {/* Security & Audit Trail Notice Banner */}
+          <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-900/50 text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
+            <Fingerprint size={16} className="text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="font-bold text-[11px] uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                Audit Trail Logged
+              </p>
+              <p className="text-[11px] leading-relaxed text-blue-800/90 dark:text-blue-300/90">
+                This update will be permanently logged under your admin account with the previous and new status, timestamp, and optional reason.
+              </p>
+            </div>
           </div>
-          <div className="erp-field">
-            <label>Check In</label>
-            <input
-              type="datetime-local"
-              value={editForm.loginTime}
-              onChange={(e) => setEditForm({ ...editForm, loginTime: e.target.value })}
-            />
-          </div>
-          <div className="erp-field">
-            <label>Check Out</label>
-            <input
-              type="datetime-local"
-              value={editForm.logoutTime}
-              onChange={(e) => setEditForm({ ...editForm, logoutTime: e.target.value })}
-            />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Attendance Status <span className="text-rose-500">*</span>
+              </label>
+              <select
+                className="w-full bg-slate-50 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+                value={editForm.status}
+                onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+              >
+                <option value="Present">Present (Full Day)</option>
+                <option value="Late">Late Check-in</option>
+                <option value="Half Day">Half Day</option>
+                <option value="Absent">Absent</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Check In Time
+              </label>
+              <input
+                type="datetime-local"
+                className="w-full bg-slate-50 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition"
+                value={editForm.loginTime}
+                onChange={(e) => setEditForm({ ...editForm, loginTime: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Check Out Time
+              </label>
+              <input
+                type="datetime-local"
+                className="w-full bg-slate-50 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition"
+                value={editForm.logoutTime}
+                onChange={(e) => setEditForm({ ...editForm, logoutTime: e.target.value })}
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Reason / Note for Manual Update
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Regularized by HR, Biometric issue, Approved client visit"
+                className="w-full bg-slate-50 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
+                value={editForm.reason || ''}
+                onChange={(e) => setEditForm({ ...editForm, reason: e.target.value })}
+              />
+            </div>
           </div>
         </div>
       </Modal>

@@ -7,6 +7,23 @@ const logger = require('../utils/logger');
 const { transformSensitive } = require('../utils/crypto');
 
 const getConfiguredAccounts = async () => {
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    const port = Number(process.env.SMTP_PORT) || 587;
+    const isExplicitSecure = process.env.SMTP_SECURE === 'true' || String(process.env.SMTP_SECURE).toLowerCase() === 'true';
+    const secure = port === 465 || (isExplicitSecure && port !== 587);
+
+    return [{
+      id: 'env-primary',
+      accountName: process.env.SMTP_FROM_NAME || 'Vahlay Consulting',
+      fromName: process.env.SMTP_FROM_NAME || 'Vahlay Consulting',
+      smtpHost: process.env.SMTP_HOST,
+      smtpPort: port,
+      secure,
+      smtpUser: process.env.SMTP_USER,
+      smtpPass: process.env.SMTP_PASS,
+    }];
+  }
+
   const settings = await Settings.findOne({ type: 'mail' }).lean();
   const config = transformSensitive(settings?.config || [], 'decrypt');
   const accounts = Array.isArray(config) ? config : (config && Object.keys(config).length ? [config] : []);
@@ -19,30 +36,39 @@ const selectAccount = (accounts, accountId) => {
   return account;
 };
 
-const createTransport = (account) => nodemailer.createTransport({
-  host: account.smtpHost,
-  port: Number(account.smtpPort),
-  secure: account.secure === true || String(account.secure) === 'true' || Number(account.smtpPort) === 465,
-  auth: {
-    user: account.smtpUser,
-    pass: account.smtpPass,
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 20000,
-});
+const createTransport = (account) => {
+  const port = Number(account.smtpPort) || 587;
+  // Port 587 uses STARTTLS (secure: false). Port 465 uses SSL/TLS (secure: true).
+  const isExplicitSecure = account.secure === true || String(account.secure).toLowerCase() === 'true';
+  const isSecure = port === 465 || (isExplicitSecure && port !== 587);
 
-const sendSystemEmail = async ({ to, subject, text, accountId }) => {
+  return nodemailer.createTransport({
+    host: account.smtpHost,
+    port,
+    secure: isSecure,
+    auth: {
+      user: account.smtpUser,
+      pass: account.smtpPass,
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
+  });
+};
+
+const sendSystemEmail = async ({ to, subject, text, html, accountId }) => {
   const accounts = await getConfiguredAccounts();
   const account = selectAccount(accounts, accountId);
   const transport = createTransport(account);
-  const fromName = String(account.fromName || account.accountName || 'TeamHub ERP').replace(/[\r\n"]/g, '').trim();
+  const fromName = String(account.fromName || account.accountName || 'Vahlay Consulting').replace(/[\r\n"]/g, '').trim();
   try {
     const result = await transport.sendMail({
       from: `"${fromName}" <${account.smtpUser}>`,
+      replyTo: account.smtpUser,
       to,
       subject,
       text,
+      ...(html ? { html } : {}),
     });
     return { messageId: result.messageId, accepted: result.accepted, rejected: result.rejected };
   } finally {

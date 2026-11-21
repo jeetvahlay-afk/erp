@@ -21,6 +21,14 @@ export const AuthProvider = ({ children }) => {
     status: null,
     loginTime: null,
     logoutTime: null,
+    isLateCheckIn: false,
+    lateReason: null,
+    isLatePending: false,
+    pendingLateMinutes: 0,
+    projectedLateCount: 0,
+    scheduledStartTime: null,
+    shiftName: 'Standard Shift',
+    graceMinutes: 15,
   });
   const timerRef = useRef(null);
   const wakeLockRef = useRef(null);
@@ -47,11 +55,18 @@ export const AuthProvider = ({ children }) => {
         grossHours: data?.grossHours ?? totalHours,
         status: data?.status || null,
         isLateCheckIn: Boolean(data?.isLateCheckIn),
+        lateReason: data?.lateReason || null,
         isLatePenalty: Boolean(data?.isLatePenalty),
         penaltyDeductionHours: data?.penaltyDeductionHours || 0,
         lateCountInMonth: data?.lateCountInMonth || 0,
         loginTime: data?.loginTime || null,
         logoutTime: data?.logoutTime || null,
+        isLatePending: Boolean(data?.isLatePending),
+        pendingLateMinutes: Number(data?.pendingLateMinutes || 0),
+        projectedLateCount: Number(data?.projectedLateCount || 0),
+        scheduledStartTime: data?.scheduledStartTime || null,
+        shiftName: data?.shiftName || 'Standard Shift',
+        graceMinutes: Number(data?.graceMinutes || 15),
       });
       return data;
     } catch {
@@ -60,8 +75,8 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  const punch = useCallback(async (action) => {
-    const { data } = await api.post('/api/attendance/punch', { action });
+  const punch = useCallback(async (action, extraData = {}) => {
+    const { data } = await api.post('/api/attendance/punch', { action, ...extraData });
     await fetchAttendanceStatus();
     return data;
   }, [fetchAttendanceStatus]);
@@ -148,6 +163,14 @@ export const AuthProvider = ({ children }) => {
         status: null,
         loginTime: null,
         logoutTime: null,
+        isLateCheckIn: false,
+        lateReason: null,
+        isLatePending: false,
+        pendingLateMinutes: 0,
+        projectedLateCount: 0,
+        scheduledStartTime: null,
+        shiftName: 'Standard Shift',
+        graceMinutes: 15,
       });
     };
     window.addEventListener('teamhub:session-expired', handleSessionExpired);
@@ -231,6 +254,14 @@ export const AuthProvider = ({ children }) => {
         status: null,
         loginTime: null,
         logoutTime: null,
+        isLateCheckIn: false,
+        lateReason: null,
+        isLatePending: false,
+        pendingLateMinutes: 0,
+        projectedLateCount: 0,
+        scheduledStartTime: null,
+        shiftName: 'Standard Shift',
+        graceMinutes: 15,
       });
     }
   }, [endBreakTimer]);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
+  AlertTriangle,
   Bell,
   Cake,
   CalendarCheck,
@@ -28,6 +29,7 @@ import {
   Menu,
   Moon,
   Palette,
+  PartyPopper,
   Receipt,
   Route,
   Search,
@@ -54,6 +56,7 @@ import {
 } from '../lib/access';
 import BreakOverlay from './BreakOverlay';
 import ShiftOvertimeModal from './ShiftOvertimeModal';
+import BirthdayCelebrationOverlay from './BirthdayCelebrationOverlay';
 import { useTheme } from '../context/ThemeContext';
 import { canAccessRoute } from '../lib/routeAccess';
 
@@ -124,6 +127,9 @@ const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const [showBirthdayCelebration, setShowBirthdayCelebration] = useState(false);
+  const [birthdayCelebrant, setBirthdayCelebrant] = useState(null);
+  const [selectedBirthdayPerson, setSelectedBirthdayPerson] = useState(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [dashboardsOpen, setDashboardsOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -135,6 +141,27 @@ const Layout = () => {
   const [loadingBreaks, setLoadingBreaks] = useState(false);
   const [punchLoading, setPunchLoading] = useState(false);
   const [breakActionLoading, setBreakActionLoading] = useState(false);
+
+  const [shiftNow, setShiftNow] = useState(new Date());
+
+  useEffect(() => {
+    if (!attendanceStatus?.isPunchedIn) return undefined;
+    const interval = window.setInterval(() => setShiftNow(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, [attendanceStatus?.isPunchedIn]);
+
+  const elapsedShiftTime = useMemo(() => {
+    if (!attendanceStatus?.loginTime) return '00:00:00';
+    const start = new Date(attendanceStatus.loginTime).getTime();
+    if (Number.isNaN(start)) return '00:00:00';
+    const end = attendanceStatus.logoutTime ? new Date(attendanceStatus.logoutTime).getTime() : shiftNow.getTime();
+    const diffSeconds = Math.max(0, (end - start) / 1000);
+    const total = Math.floor(diffSeconds);
+    const hrs = String(Math.floor(total / 3600)).padStart(2, '0');
+    const mins = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+    const secs = String(total % 60).padStart(2, '0');
+    return `${hrs}:${mins}:${secs}`;
+  }, [attendanceStatus?.loginTime, attendanceStatus?.logoutTime, shiftNow]);
 
   const [pendingBreak, setPendingBreak] = useState(null);
   const [breakPassword, setBreakPassword] = useState('');
@@ -204,15 +231,71 @@ const Layout = () => {
     showRoute('/audit-logs', canAudit) ||
     (isAdmin && showRoute('/settings/appearance'));
 
+  const knownNotificationIdsRef = useRef(new Set());
+  const isInitialNotificationFetchRef = useRef(true);
+
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await api.get('/api/notifications?limit=15');
-      setNotifications(res.data?.items || []);
+      const items = res.data?.items || [];
+      setNotifications(items);
       setUnreadCount(Number(res.data?.unreadCount || 0));
+
+      if (isInitialNotificationFetchRef.current) {
+        items.forEach((item) => item._id && knownNotificationIdsRef.current.add(item._id));
+        isInitialNotificationFetchRef.current = false;
+      } else {
+        const newUnread = items.filter((item) => item._id && !item.readAt && !knownNotificationIdsRef.current.has(item._id));
+        newUnread.forEach((item) => {
+          knownNotificationIdsRef.current.add(item._id);
+          feedback.notification({
+            title: item.title || 'New Notification',
+            message: item.message,
+            tone: item.type === 'error' ? 'error' : item.type === 'warning' ? 'warning' : 'info',
+          }, () => {
+            if (item.actionUrl) navigate(item.actionUrl);
+            else setNotificationsOpen(true);
+          });
+        });
+        items.forEach((item) => item._id && knownNotificationIdsRef.current.add(item._id));
+      }
     } catch {
       // silently ignore background poll
     }
+  }, [navigate]);
+
+  const fetchBirthdayCelebrants = useCallback(async () => {
+    try {
+      const res = await api.get('/api/workspace/birthdays');
+      const items = Array.isArray(res.data) ? res.data : [];
+      if (!items.length) {
+        setBirthdayCelebrant(null);
+        return;
+      }
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentDate = now.getDate();
+
+      // Find person whose birthday is today!
+      const todayCelebrant = items.find((item) => {
+        const d = item.nextBirthday ? new Date(item.nextBirthday) : (item.dob ? new Date(item.dob) : null);
+        return d && d.getMonth() === currentMonth && d.getDate() === currentDate;
+      });
+
+      // Select today's celebrant, or the upcoming birthday employee
+      const celebrant = todayCelebrant || items[0] || null;
+      setBirthdayCelebrant(celebrant);
+    } catch {
+      // silently ignore
+    }
   }, []);
+
+  useEffect(() => {
+    if (!user?._id) return undefined;
+    fetchBirthdayCelebrants();
+    const interval = window.setInterval(fetchBirthdayCelebrants, 60000);
+    return () => window.clearInterval(interval);
+  }, [fetchBirthdayCelebrants, user?._id]);
 
   useEffect(() => {
     if (!user?._id) return undefined;
@@ -318,7 +401,74 @@ const Layout = () => {
     return () => window.removeEventListener('teamhub:breaks-updated', handleBreaksUpdated);
   }, [fetchBreaks]);
 
+  const [lateReasonText, setLateReasonText] = useState('');
+  const [submittingLateReason, setSubmittingLateReason] = useState(false);
+  const [lateReasonError, setLateReasonError] = useState('');
+
+  const showLateModal = Boolean(
+    user?._id &&
+    !attendanceStatus.loading &&
+    !attendanceStatus.isPunchedIn &&
+    !attendanceStatus.isShiftCompleted &&
+    attendanceStatus.isLatePending
+  );
+
+  const autoCheckedInRef = useRef(false);
+  useEffect(() => {
+    if (!user?._id || attendanceStatus.loading) return;
+    if (attendanceStatus.isPunchedIn || attendanceStatus.isShiftCompleted) return;
+    if (attendanceStatus.isLatePending) return; // Do NOT auto-check-in if late!
+
+    if (!autoCheckedInRef.current) {
+      autoCheckedInRef.current = true;
+      punch('in').then(() => {
+        feedback.success(`Welcome back, ${user.name || 'there'}! Automatically checked in on time.`);
+      }).catch((err) => {
+        console.warn('Auto check-in not performed:', err);
+      });
+    }
+  }, [
+    user?._id,
+    user?.name,
+    attendanceStatus.loading,
+    attendanceStatus.isPunchedIn,
+    attendanceStatus.isShiftCompleted,
+    attendanceStatus.isLatePending,
+    punch,
+  ]);
+
+  const handleSelectReasonPill = (pill) => {
+    setLateReasonText((prev) => {
+      if (!prev.trim()) return pill;
+      if (prev.includes(pill)) return prev;
+      return `${prev}, ${pill}`;
+    });
+    setLateReasonError('');
+  };
+
+  const handleSubmitLateReason = async () => {
+    if (lateReasonText.trim().length < 10) {
+      setLateReasonError('Please provide a proper explanation with at least 10 characters.');
+      return;
+    }
+    setSubmittingLateReason(true);
+    setLateReasonError('');
+    try {
+      await punch('in', { lateReason: lateReasonText.trim() });
+      feedback.success('Reason recorded and checked in successfully. Have a good shift!');
+      setLateReasonText('');
+    } catch (error) {
+      setLateReasonError(getApiError(error, 'Failed to submit late check-in reason'));
+    } finally {
+      setSubmittingLateReason(false);
+    }
+  };
+
   const handleCheckIn = async () => {
+    if (attendanceStatus.isLatePending) {
+      feedback.info('Shift started past scheduled time. Please submit your reason in the popup to check in.');
+      return;
+    }
     setPunchLoading(true);
     try {
       await punch('in');
@@ -449,6 +599,16 @@ const Layout = () => {
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     return parts[0].slice(0, 2).toUpperCase();
   }, [user?.name]);
+
+  const resolvedAvatarUrl = useMemo(() => {
+    if (!user) return null;
+    if (user.profileImage) {
+      return /^(https?:|data:|blob:|\/)/.test(user.profileImage)
+        ? user.profileImage
+        : `/uploads/avatars/${user.profileImage}`;
+    }
+    return user.avatar || null;
+  }, [user]);
 
   return (
     <div className="flex h-screen w-full bg-[#f8fafc] dark:bg-[#0b0f17] overflow-hidden text-slate-800 dark:text-slate-100">
@@ -647,6 +807,163 @@ const Layout = () => {
 
       <BreakOverlay />
       <ShiftOvertimeModal />
+      <BirthdayCelebrationOverlay
+        celebrant={selectedBirthdayPerson || birthdayCelebrant}
+        user={user}
+        isOpen={showBirthdayCelebration}
+        onClose={() => {
+          setShowBirthdayCelebration(false);
+          setSelectedBirthdayPerson(null);
+        }}
+      />
+
+      {/* Uncloseable Late Check-In Reason Modal */}
+      {showLateModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="late-checkin-title"
+          className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+        >
+          {/* Backdrop with stopPropagation to make it strictly uncloseable */}
+          <div className="fixed inset-0" aria-hidden="true" onClick={(e) => e.stopPropagation()} />
+          <section
+            className="relative w-full max-w-lg bg-white dark:bg-[#111827] rounded-3xl shadow-2xl border border-amber-300/40 dark:border-amber-500/30 p-6 z-10 text-left overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3.5 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Clock size={22} className="animate-pulse" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 id="late-checkin-title" className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+                    Late Check-In Required
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                    Action Required
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Your shift started past the scheduled time. Please submit an explanation to check in.
+                </p>
+              </div>
+            </div>
+
+            {/* Shift & Late Status Banner */}
+            <div className="mt-4 p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 text-xs space-y-2">
+              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                <span className="text-slate-500 dark:text-slate-400">Shift Name:</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{attendanceStatus.shiftName || 'Standard Shift'}</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                <span className="text-slate-500 dark:text-slate-400">Scheduled Start:</span>
+                <span className="font-semibold">{formatLoginTime(attendanceStatus.scheduledStartTime) || '09:30 AM'}</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                <span className="text-slate-500 dark:text-slate-400">Delayed By:</span>
+                <span className="font-bold text-amber-600 dark:text-amber-400">
+                  {attendanceStatus.pendingLateMinutes || 0} minutes (grace: {attendanceStatus.graceMinutes || 15}m)
+                </span>
+              </div>
+              {attendanceStatus.projectedLateCount > 0 && (
+                <div className="pt-2 border-t border-amber-200/50 dark:border-amber-800/30 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                  ⚠️ This will be your <strong>#{attendanceStatus.projectedLateCount}</strong> late check-in this month. Every 3 late check-ins results in a half-day deduction (4.5 hrs).
+                </div>
+              )}
+            </div>
+
+            {/* Quick Reason Pills */}
+            <div className="mt-4">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                Quick Select Common Reasons:
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'Traffic Congestion',
+                  'Metro / Transit Delay',
+                  'Vehicle Breakdown',
+                  'Medical / Health Emergency',
+                  'Severe Weather / Rain',
+                  'Prior Approval from Manager',
+                ].map((pill) => (
+                  <button
+                    key={pill}
+                    type="button"
+                    onClick={() => handleSelectReasonPill(pill)}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-medium bg-slate-100 hover:bg-amber-100 hover:text-amber-800 dark:bg-slate-800 dark:hover:bg-amber-900/40 dark:text-slate-300 dark:hover:text-amber-200 border border-slate-200/70 dark:border-slate-700 transition-colors cursor-pointer"
+                  >
+                    + {pill}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <div className="mt-3.5">
+              <label htmlFor="late-reason-input" className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5">
+                Reason for Delay <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                id="late-reason-input"
+                rows={3}
+                value={lateReasonText}
+                onChange={(e) => {
+                  setLateReasonText(e.target.value);
+                  if (lateReasonError) setLateReasonError('');
+                }}
+                placeholder="Explain the detailed reason why you are late today (minimum 10 characters)..."
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 resize-none transition-all"
+              />
+              <div className="flex items-center justify-between mt-1 text-[11px]">
+                {lateReasonError ? (
+                  <span className="text-rose-600 dark:text-rose-400 font-medium">{lateReasonError}</span>
+                ) : (
+                  <span className="text-slate-400">Be specific and descriptive.</span>
+                )}
+                <span className={lateReasonText.trim().length >= 10 ? 'text-emerald-600 font-medium' : 'text-slate-400'}>
+                  {lateReasonText.trim().length} / 10 min chars
+                </span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="mt-5 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => logout()}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer underline"
+              >
+                Sign out instead
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitLateReason}
+                disabled={lateReasonText.trim().length < 10 || submittingLateReason}
+                className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs hover:shadow-md flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingLateReason ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Submitting Reason…</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn size={13} />
+                    <span>Submit Reason & Check In</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* Verify Break Start Password Modal (Navbar Break) */}
       {breakPasswordModalOpen && pendingBreak && (
@@ -1439,32 +1756,82 @@ const Layout = () => {
           <div className="flex items-center gap-1.5 sm:gap-2.5">
             {user && (
               <>
+                {/* Birthday Celebrant Pill: Placed next to Check In / Shift option */}
+                {birthdayCelebrant && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedBirthdayPerson(birthdayCelebrant);
+                      setShowBirthdayCelebration(true);
+                    }}
+                    className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-rose-500/15 to-yellow-500/15 hover:from-amber-500/25 hover:to-rose-500/25 border border-amber-300 dark:border-amber-400/50 text-amber-950 dark:text-amber-100 shadow-2xs hover:shadow-xs transition-all duration-300 cursor-pointer active:scale-95"
+                    title={`🎉 Today is ${birthdayCelebrant.name}'s Birthday! Click to celebrate! 🎂`}
+                    aria-label={`Birthday celebration for ${birthdayCelebrant.name}`}
+                  >
+                    {/* Birthday Person's Circular Profile Photo with Animated Glowing Neon Border */}
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden birthday-avatar-glow ring-2 ring-amber-400 dark:ring-amber-300 flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-sm shrink-0">
+                      {birthdayCelebrant.profileImage ? (
+                        <img
+                          src={
+                            /^(https?:|data:|blob:|\/)/.test(birthdayCelebrant.profileImage)
+                              ? birthdayCelebrant.profileImage
+                              : `/uploads/avatars/${birthdayCelebrant.profileImage}`
+                          }
+                          alt={birthdayCelebrant.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            if (e.currentTarget.nextElementSibling) {
+                              e.currentTarget.nextElementSibling.style.display = 'flex';
+                            }
+                          }}
+                        />
+                      ) : null}
+                      <span className={`w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-500 via-rose-500 to-indigo-600 text-white font-black text-[10px] sm:text-xs ${birthdayCelebrant.profileImage ? 'hidden' : 'flex'}`}>
+                        {birthdayCelebrant.name ? birthdayCelebrant.name.slice(0, 2).toUpperCase() : '🎂'}
+                      </span>
+                    </div>
+
+                    {/* Birthday Person's Name */}
+                    <div className="flex items-center gap-1 text-xs font-bold whitespace-nowrap">
+                      <span>🎂</span>
+                      <span className="font-extrabold max-w-[100px] sm:max-w-[150px] truncate text-slate-900 dark:text-amber-100">
+                        {birthdayCelebrant.name}
+                      </span>
+                      <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded-full font-black animate-pulse hidden sm:inline">
+                        Birthday!
+                      </span>
+                      <span>🎉</span>
+                    </div>
+                  </button>
+                )}
+
                 {/* Single Combined Shift, Break & Check Out Option */}
                 {attendanceStatus.loading ? (
                   <div className="h-8 w-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse hidden xs:block" />
                 ) : attendanceStatus.isShiftCompleted ? (
                   attendanceStatus.isLatePenalty ? (
                     <div
-                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 flex items-center gap-1.5 select-none"
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 flex items-center gap-1.5 select-none"
                       title="3rd late check-in penalty: 4.5 hours cut (Half Day)"
                     >
-                      <Clock size={13} className="text-rose-600 dark:text-rose-400 stroke-[2.5]" />
+                      <Clock size={12} className="text-rose-600 dark:text-rose-400 stroke-[2.5]" />
                       <span>Half Day (3rd Late)</span>
                     </div>
                   ) : attendanceStatus.isEarlyCheckout ? (
                     <div
-                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 flex items-center gap-1.5 select-none"
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 flex items-center gap-1.5 select-none"
                       title="Checked out early (< 7 hours - Half Day)"
                     >
-                      <Clock size={13} className="text-amber-600 dark:text-amber-400 stroke-[2.5]" />
+                      <Clock size={12} className="text-amber-600 dark:text-amber-400 stroke-[2.5]" />
                       <span>Early Checkout</span>
                     </div>
                   ) : (
                     <div
-                      className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1.5 select-none"
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1.5 select-none"
                       title="Shift completed for today"
                     >
-                      <Check size={13} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+                      <Check size={12} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
                       <span>Shift Done</span>
                     </div>
                   )
@@ -1473,10 +1840,10 @@ const Layout = () => {
                     type="button"
                     onClick={handleCheckIn}
                     disabled={punchLoading}
-                    className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs hover:shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs hover:shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                     title="Check in for today's shift"
                   >
-                    {punchLoading ? <Loader2 size={13} className="animate-spin" /> : <LogIn size={13} />}
+                    {punchLoading ? <Loader2 size={12} className="animate-spin" /> : <LogIn size={12} />}
                     <span>Check In</span>
                   </button>
                 ) : (
@@ -1489,7 +1856,7 @@ const Layout = () => {
                         setShiftMenuOpen(next);
                         if (next && !activeBreak) fetchBreaks();
                       }}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-2 shadow-2xs ${
+                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
                         activeBreak
                           ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 animate-pulse'
                           : shiftMenuOpen
@@ -1500,19 +1867,26 @@ const Layout = () => {
                     >
                       {activeBreak ? (
                         <>
-                          <Coffee size={13} />
+                          <Coffee size={12} />
                           <span>
-                            Break Out <span className="font-mono text-[11px] opacity-90 hidden sm:inline">({formatBreakTimer(timeLeft, elapsedExceeded)})</span>
+                            Break Out <span className="font-mono text-[10px] opacity-90 hidden sm:inline">({formatBreakTimer(timeLeft, elapsedExceeded)})</span>
                           </span>
                         </>
                       ) : (
                         <>
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                          <span>On Shift</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                          <span className="flex items-center gap-1 font-medium">
+                            <span>On Shift</span>
+                            {attendanceStatus.loginTime && (
+                              <span className="font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-900/60 px-1 py-0.2 rounded tracking-tight">
+                                {elapsedShiftTime}
+                              </span>
+                            )}
+                          </span>
                         </>
                       )}
                       <ChevronDown
-                        size={12}
+                        size={11}
                         className={`transition-transform duration-200 ${shiftMenuOpen ? 'rotate-180' : ''} ${
                           activeBreak ? 'text-amber-100' : 'text-slate-400'
                         }`}
@@ -1531,32 +1905,33 @@ const Layout = () => {
                                 {activeBreak ? 'On Break' : 'Shift Active'}
                               </p>
                               {attendanceStatus.loginTime && (
-                                <p className="text-[10px] text-slate-400 truncate">
-                                  Checked in at {formatLoginTime(attendanceStatus.loginTime)}
+                                <p className="text-[10px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                                  <span>Checked in at {formatLoginTime(attendanceStatus.loginTime)}</span>
                                 </p>
                               )}
                             </div>
                           </div>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${
-                            activeBreak
-                              ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
-                              : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
-                          }`}>
-                            {activeBreak ? 'Break' : 'Working'}
-                          </span>
+                          <div className="flex flex-col items-end gap-0.5 shrink-0">
+                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                              activeBreak
+                                ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                            }`}>
+                              {activeBreak ? 'Break' : 'Working'}
+                            </span>
+                            {!activeBreak && attendanceStatus.loginTime && (
+                              <span className="font-mono text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 tracking-tight leading-none mt-1">
+                                {elapsedShiftTime}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Late Warning / Deduction Notice */}
-                        {attendanceStatus.isLatePenalty && (
-                          <div className="px-3 py-1.5 mb-2 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200/80 dark:border-rose-800/60 text-[11px] text-rose-700 dark:text-rose-300 font-medium flex items-center gap-1.5">
-                            <Clock size={13} className="shrink-0 text-rose-500" />
-                            <span>3rd late check-in: 4.5h half-day deduction applied.</span>
-                          </div>
-                        )}
-                        {!attendanceStatus.isLatePenalty && attendanceStatus.isLateCheckIn && (
+                        {/* Late Notice */}
+                        {(attendanceStatus.isLatePenalty || attendanceStatus.isLateCheckIn) && (
                           <div className="px-3 py-1.5 mb-2 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1.5">
                             <Clock size={13} className="shrink-0 text-amber-500" />
-                            <span>Late check-in recorded ({attendanceStatus.lateCountInMonth}/3 toward half-day cut).</span>
+                            <span>Late check in</span>
                           </div>
                         )}
 
@@ -1566,10 +1941,10 @@ const Layout = () => {
                             <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50">
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 truncate pr-2">
-                                  <Coffee size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                  <Coffee size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
                                   <span className="truncate">{String(activeBreak.breakType || 'Break').split(' [')[0]}</span>
                                 </span>
-                                <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                                <span className="text-sm sm:text-base font-mono font-black text-amber-700 dark:text-amber-300 shrink-0">
                                   {formatBreakTimer(timeLeft, elapsedExceeded)}
                                 </span>
                               </div>
@@ -1587,18 +1962,18 @@ const Layout = () => {
                             </div>
                           ) : (
                             <div>
-                              <div className="px-2 py-1 flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                              <div className="px-2 py-0.5 flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <span className="flex items-center gap-1.5">
-                                  <Coffee size={12} className="text-amber-500" />
+                                  <Coffee size={11} className="text-amber-500" />
                                   Break Options
                                 </span>
-                                <span className="text-[10px] lowercase font-normal">1-click start</span>
+                                <span className="text-[9px] lowercase font-normal">1-click start</span>
                               </div>
 
-                              <div className="max-h-48 overflow-y-auto space-y-0.5 py-1">
+                              <div className="max-h-44 overflow-y-auto space-y-0.5 py-0.5">
                                 {loadingBreaks ? (
-                                  <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                                    <Loader2 size={13} className="animate-spin" />
+                                  <div className="p-2 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                    <Loader2 size={12} className="animate-spin" />
                                     Loading breaks...
                                   </div>
                                 ) : availableBreaks.length > 0 ? (
@@ -1610,26 +1985,26 @@ const Layout = () => {
                                         type="button"
                                         onClick={() => handleSelectBreak(item)}
                                         disabled={breakActionLoading}
-                                        className="w-full px-2.5 py-1.5 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors flex items-center justify-between group cursor-pointer"
+                                        className="w-full px-2 py-1 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors flex items-center justify-between group cursor-pointer"
                                       >
                                         <div className="min-w-0 pr-2">
-                                          <p className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                                          <p className="text-[11px] font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 leading-tight">
                                             {item.breakType}
                                           </p>
                                           {item.fromTime && item.toTime && (
-                                            <p className="text-[10px] text-slate-400">
+                                            <p className="text-[9px] text-slate-400 leading-none mt-0.5">
                                               {item.fromTime} - {item.toTime}
                                             </p>
                                           )}
                                         </div>
-                                        <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/60 group-hover:text-amber-700 dark:group-hover:text-amber-300">
+                                        <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/60 group-hover:text-amber-700 dark:group-hover:text-amber-300">
                                           {duration}m
                                         </span>
                                       </button>
                                     );
                                   })
                                 ) : (
-                                  <div className="py-3 px-2 text-center text-xs text-slate-400">
+                                  <div className="py-2 px-2 text-center text-[11px] text-slate-400">
                                     No breaks defined in Daily Break Administration
                                   </div>
                                 )}
@@ -1641,7 +2016,7 @@ const Layout = () => {
                                   setShiftMenuOpen(false);
                                   navigate('/take-break');
                                 }}
-                                className="w-full px-2.5 py-1 text-left text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center justify-between cursor-pointer"
+                                className="w-full px-2 py-0.5 text-left text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center justify-between cursor-pointer"
                               >
                                 <span>Custom break request</span>
                                 <span>→</span>
@@ -1778,16 +2153,31 @@ const Layout = () => {
               )}
             </div>
 
-            {/* Profile Avatar Pill */}
-            <div className="relative ml-1" ref={profileRef}>
+            {/* User Profile Menu */}
+            <div className="relative ml-1 flex items-center gap-1" ref={profileRef}>
               <button
                 type="button"
                 onClick={() => setProfileOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 p-1 pr-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                className="flex items-center gap-2 p-1 pr-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                 title="Account menu"
               >
-                <div className="w-8 h-8 rounded-full bg-slate-900 dark:bg-blue-600 text-white text-xs font-bold flex items-center justify-center ring-2 ring-slate-100 dark:ring-slate-800 shadow-2xs">
-                  {initials}
+                <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-slate-200 dark:ring-slate-700 flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-sm text-white font-bold text-xs">
+                  {resolvedAvatarUrl ? (
+                    <img
+                      src={resolvedAvatarUrl}
+                      alt={user?.name || 'Profile'}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        if (e.currentTarget.nextElementSibling) {
+                          e.currentTarget.nextElementSibling.style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <span className={`w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-600 via-indigo-600 to-rose-500 text-white font-bold text-xs ${resolvedAvatarUrl ? 'hidden' : 'flex'}`}>
+                    {initials}
+                  </span>
                 </div>
                 <span className="hidden md:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 max-w-[90px] truncate">
                   {user?.name?.split(' ')[0] || 'User'}
@@ -1796,7 +2186,7 @@ const Layout = () => {
               </button>
 
               {profileOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#111827] rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-1.5 z-50">
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-[#111827] rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-1.5 z-50">
                   <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
                     <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{user?.name || 'User'}</p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 capitalize truncate">{user?.role || 'Employee'}</p>

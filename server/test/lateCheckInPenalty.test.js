@@ -46,3 +46,24 @@ test('Attendance model: standard late check-in without 3rd-late penalty keeps st
   assert.equal(attendance.totalHours, 9);
   assert.equal(attendance.status, 'Late');
 });
+
+test('Attendance model: preserves lateReason and lateReasonSubmittedAt', async () => {
+  const loginTime = new Date('2026-11-21T09:45:00Z');
+  const submittedAt = new Date('2026-11-21T09:45:10Z');
+
+  const attendance = new Attendance({
+    user: new mongoose.Types.ObjectId(),
+    date: new Date('2026-11-21T00:00:00Z'),
+    loginTime,
+    isLateCheckIn: true,
+    lateMinutes: 30,
+    lateReason: 'Heavy traffic on highway due to construction',
+    lateReasonSubmittedAt: submittedAt,
+  });
+
+  await attendance.validate();
+
+  assert.equal(attendance.lateReason, 'Heavy traffic on highway due to construction');
+  assert.equal(attendance.lateReasonSubmittedAt.getTime(), submittedAt.getTime());
+  assert.equal(attendance.isLateCheckIn, true);
+});

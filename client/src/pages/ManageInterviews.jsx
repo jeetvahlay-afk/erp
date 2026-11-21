@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  AlertCircle,
   Briefcase,
   ChevronDown,
   Download,
   Edit3,
+  ExternalLink,
   Eye,
   FileText,
+  Link2,
   Plus,
   RotateCcw,
   Trash2,
@@ -16,7 +19,6 @@ import { downloadCsv } from '../lib/export';
 import { feedback } from '../lib/feedback';
 import {
   Avatar,
-  EmptyState,
   ErrorState,
   formatDate,
   LoadingState,
@@ -32,10 +34,11 @@ const BRANCH_OPTIONS = [
   'Ahmedabad',
   'Surat',
   'Vadodara',
+  'Rajkot',
   'Mumbai',
   'Pune',
-  'Delhi',
   'Bangalore',
+  'Delhi',
   'Remote',
 ];
 
@@ -51,13 +54,24 @@ const SECTIONS = {
       { id: 'No Response', label: 'No Response' },
     ],
   },
+  assessment: {
+    id: 'assessment',
+    title: 'Assessment Update',
+    subtitle: '',
+    tabs: [
+      { id: 'Pending', label: 'Pending' },
+      { id: 'Running', label: 'Running' },
+      { id: 'Red', label: 'Red' },
+      { id: 'Yellow', label: 'Yellow' },
+      { id: 'Green', label: 'Green' },
+    ],
+  },
   interview: {
     id: 'interview',
     title: 'Interview Candidate Updates',
     subtitle:
       'Comprehensive interview log, HR & CSM evaluations, joining & onboarding status',
     tabs: [
-      { id: 'Assessment Done', label: 'Assessment Done' },
       { id: '1st Round', label: '1st Round' },
       { id: '2nd Round', label: '2nd Round' },
       { id: 'Selected', label: 'Selected' },
@@ -86,18 +100,25 @@ const getSectionForRecord = (record) => {
   const trainingNorm = normalizeStatus(record.trainingStatus);
   const stageNorm = normalizeStatus(record.stage);
 
-  // 1. Interview Candidate Updates pipeline (1st Round, 2nd Round, Assessment Done, Selected, Rejected)
+  // 1. Assessment Update pipeline (Pending, Running, Red, Yellow, Green, Assessment Done)
+  if (
+    ['pending', 'running', 'red', 'yellow', 'green'].includes(norm) ||
+    norm.includes('assessment')
+  ) {
+    return 'assessment';
+  }
+
+  // 2. Interview Candidate Updates pipeline (1st Round, 2nd Round, Selected, Rejected)
   if (
     norm.includes('1st round') ||
     norm.includes('2nd round') ||
-    norm.includes('assessment') ||
     norm === 'selected' ||
     norm === 'rejected'
   ) {
     return 'interview';
   }
 
-  // 2. Training Candidates pipeline
+  // 3. Training Candidates pipeline
   if (
     [
       'all trainees',
@@ -115,7 +136,7 @@ const getSectionForRecord = (record) => {
     return 'training';
   }
 
-  // 3. Daily Candidates Update pipeline
+  // 4. Daily Candidates Update pipeline
   if (
     norm.includes('new candidate') ||
     norm === 'interview scheduled' ||
@@ -128,6 +149,7 @@ const getSectionForRecord = (record) => {
   }
 
   // Fallback to stage if defined
+  if (stageNorm.includes('assessment')) return 'assessment';
   if (stageNorm.includes('interview')) return 'interview';
   if (stageNorm.includes('training')) return 'training';
   return 'daily';
@@ -139,6 +161,11 @@ const getStatusTone = (status) => {
   if (norm.includes('interview scheduled') || norm === 'scheduled') return 'primary';
   if (norm.includes('reschedule')) return 'warning';
   if (norm.includes('no response') || norm.includes('no respones')) return 'neutral';
+  if (norm === 'pending' || norm.includes('pending')) return 'warning';
+  if (norm === 'running' || norm.includes('running')) return 'info';
+  if (norm === 'red' || norm.includes('red')) return 'danger';
+  if (norm === 'yellow' || norm.includes('yellow')) return 'warning';
+  if (norm === 'green' || norm.includes('green')) return 'success';
   if (norm.includes('assessment')) return 'accent';
   if (norm.includes('1st round')) return 'info';
   if (norm.includes('2nd round')) return 'primary';
@@ -178,7 +205,83 @@ const emptyForm = () => ({
   trainingStatus: '',
 });
 
+const validateCandidateForm = (formData) => {
+  const errors = {};
+
+  // Candidate Name * (Required, letters, 2-120 chars)
+  const name = String(formData.candidateName || '').trim();
+  if (!name) {
+    errors.candidateName = 'Candidate Name is required.';
+  } else if (name.length < 2) {
+    errors.candidateName = 'Candidate Name must be at least 2 characters.';
+  } else if (name.length > 120) {
+    errors.candidateName = 'Candidate Name must not exceed 120 characters.';
+  } else if (!/[a-zA-Z]/.test(name)) {
+    errors.candidateName = 'Candidate Name must contain valid letters.';
+  }
+
+  // Mobile / Phone * (Required, 7-15 digits)
+  const phone = String(formData.phoneNumber || '').trim();
+  const digitsOnly = phone.replace(/\D/g, '');
+  if (!phone) {
+    errors.phoneNumber = 'Mobile / Phone number is required.';
+  } else if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+    errors.phoneNumber = 'Phone number must contain between 7 and 15 digits.';
+  } else if (!/^\+?[0-9\s-]{7,20}$/.test(phone)) {
+    errors.phoneNumber = 'Please enter a valid phone number (e.g. +91 98765 43210).';
+  }
+
+  // Email (Optional, but validated if entered)
+  const emailVal = String(formData.email || '').trim();
+  if (emailVal) {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(emailVal)) {
+      errors.email = 'Please enter a valid email address (e.g. rahul.sharma@example.com).';
+    } else if (emailVal.length > 254) {
+      errors.email = 'Email address must not exceed 254 characters.';
+    }
+  }
+
+  // Comments / Notes * (Mandatory, min 5 chars)
+  const notes = String(formData.comments || formData.remarks || '').trim();
+  if (!notes) {
+    errors.comments = 'Comments / Notes are mandatory.';
+  } else if (notes.length < 5) {
+    errors.comments = 'Comments / Notes must be at least 5 characters long.';
+  }
+
+  // Designation / Candidate Post (if provided, min 2 chars)
+  const post = String(formData.candidatePost || '').trim();
+  if (post && post.length < 2) {
+    errors.candidatePost = 'Designation must be at least 2 characters.';
+  } else if (post.length > 120) {
+    errors.candidatePost = 'Designation must not exceed 120 characters.';
+  }
+
+  // Entry Date
+  if (formData.entryDate && isNaN(new Date(formData.entryDate).getTime())) {
+    errors.entryDate = 'Please select a valid entry date.';
+  }
+
+  // Schedule Interview Date & Time consistency
+  if (formData.interviewTime && !formData.interviewDate) {
+    errors.interviewDate = 'Please select an interview date for the scheduled time.';
+  }
+
+  // CV / Resume Link length
+  const cv = String(formData.cvUrl || '').trim();
+  if (cv && cv.length > 500) {
+    errors.cvUrl = 'CV link must not exceed 500 characters.';
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors,
+  };
+};
+
 const ManageInterviews = () => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Active Main Section (daily | interview | training)
@@ -198,11 +301,49 @@ const ManageInterviews = () => {
   const [branchFilter, setBranchFilter] = useState('');
   const [selected, setSelected] = useState(null);
   const [viewingCandidate, setViewingCandidate] = useState(null);
-  const [editingFromDetails, setEditingFromDetails] = useState(false);
   const [form, setForm] = useState(emptyForm());
+  const [formErrors, setFormErrors] = useState({});
+  const [touched, setTouched] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const handleFieldChange = (field, value) => {
+    let updatedForm = { ...form, [field]: value };
+
+    // Linked logic: Comments and Remarks stay synchronized
+    if (field === 'comments') {
+      updatedForm.remarks = value;
+    } else if (field === 'remarks') {
+      updatedForm.comments = value;
+    }
+
+    // Linked logic: Experience and Experience Type
+    if (field === 'experienceType') {
+      if (value === 'Fresher' && (!updatedForm.experience || updatedForm.experience === '0' || updatedForm.experience === '0 Years')) {
+        updatedForm.experience = 'Fresher';
+      } else if (value === 'Experienced' && updatedForm.experience === 'Fresher') {
+        updatedForm.experience = '';
+      }
+    } else if (field === 'experience') {
+      if (String(value).toLowerCase().includes('fresher') && !updatedForm.experienceType) {
+        updatedForm.experienceType = 'Fresher';
+      }
+    }
+
+    setForm(updatedForm);
+
+    if (touched[field]) {
+      const { errors } = validateCandidateForm(updatedForm);
+      setFormErrors(errors);
+    }
+  };
+
+  const handleFieldBlur = (field) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    const { errors } = validateCandidateForm(form);
+    setFormErrors(errors);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -236,8 +377,13 @@ const ManageInterviews = () => {
       'Interview Scheduled': 0,
       Rescheduled: 0,
       'No Response': 0,
+      // Assessment
+      Pending: 0,
+      Running: 0,
+      Red: 0,
+      Yellow: 0,
+      Green: 0,
       // Interview
-      'Assessment Done': 0,
       '1st Round': 0,
       '2nd Round': 0,
       Selected: 0,
@@ -264,9 +410,20 @@ const ManageInterviews = () => {
         else if (norm.includes('no response') || norm.includes('no respones'))
           result['No Response'] += 1;
         else result['New candidates info'] += 1;
+      } else if (sec === 'assessment') {
+        if (norm === 'running' || norm.includes('running')) {
+          result['Running'] += 1;
+        } else if (norm === 'red' || norm.includes('red')) {
+          result['Red'] += 1;
+        } else if (norm === 'yellow' || norm.includes('yellow')) {
+          result['Yellow'] += 1;
+        } else if (norm === 'green' || norm.includes('green')) {
+          result['Green'] += 1;
+        } else {
+          result['Pending'] += 1;
+        }
       } else if (sec === 'interview') {
-        if (norm.includes('assessment')) result['Assessment Done'] += 1;
-        else if (norm.includes('1st round')) result['1st Round'] += 1;
+        if (norm.includes('1st round')) result['1st Round'] += 1;
         else if (norm.includes('2nd round')) result['2nd Round'] += 1;
         else if (norm.includes('selected')) result['Selected'] += 1;
         else if (norm.includes('rejected')) result['Rejected'] += 1;
@@ -312,9 +469,24 @@ const ManageInterviews = () => {
         else if (activeSubTab === 'Rescheduled') matchesSubTab = norm.includes('reschedule');
         else if (activeSubTab === 'No Response')
           matchesSubTab = norm.includes('no response') || norm.includes('no respones');
+      } else if (activeSectionKey === 'assessment') {
+        if (activeSubTab === 'Pending')
+          matchesSubTab =
+            norm === 'pending' ||
+            norm.includes('pending') ||
+            norm === 'assessment done' ||
+            norm === 'assessment';
+        else if (activeSubTab === 'Running')
+          matchesSubTab = norm === 'running' || norm.includes('running');
+        else if (activeSubTab === 'Red')
+          matchesSubTab = norm === 'red' || norm.includes('red');
+        else if (activeSubTab === 'Yellow')
+          matchesSubTab = norm === 'yellow' || norm.includes('yellow');
+        else if (activeSubTab === 'Green')
+          matchesSubTab = norm === 'green' || norm.includes('green');
+        else matchesSubTab = norm.includes('assessment');
       } else if (activeSectionKey === 'interview') {
-        if (activeSubTab === 'Assessment Done') matchesSubTab = norm.includes('assessment');
-        else if (activeSubTab === '1st Round') matchesSubTab = norm.includes('1st round');
+        if (activeSubTab === '1st Round') matchesSubTab = norm.includes('1st round');
         else if (activeSubTab === '2nd Round') matchesSubTab = norm.includes('2nd round');
         else if (activeSubTab === 'Selected') matchesSubTab = norm.includes('selected');
         else if (activeSubTab === 'Rejected') matchesSubTab = norm.includes('rejected');
@@ -356,8 +528,12 @@ const ManageInterviews = () => {
 
   const openCreate = () => {
     setSelected('new');
+    setFormErrors({});
+    setTouched({});
     let defaultStatus = 'New candidates info';
     if (['New candidates info', 'Interview Scheduled', 'Rescheduled', 'No Response'].includes(activeSubTab)) {
+      defaultStatus = activeSubTab;
+    } else if (['Pending', 'Running', 'Red', 'Yellow', 'Green'].includes(activeSubTab)) {
       defaultStatus = activeSubTab;
     }
 
@@ -367,58 +543,24 @@ const ManageInterviews = () => {
     });
   };
 
-  const openEdit = (record) => {
-    setSelected(record);
-    setForm({
-      ...emptyForm(),
-      ...record,
-      candidateName: record.candidateName || '',
-      phoneNumber: record.phoneNumber || '',
-      email: record.email || '',
-      gender: record.gender || '',
-      maritalStatus: record.maritalStatus || '',
-      address: record.address || '',
-      experience: record.experience || '',
-      experienceType: record.experienceType || '',
-      candidatePost: record.candidatePost || '',
-      cvUrl: record.cvUrl || record.resumeUrl || '',
-      candidateReference: record.candidateReference || '',
-      status: record.status || 'New candidates info',
-      interviewScore: record.interviewScore || '',
-      reference: record.reference || '',
-      branch: record.branch || 'Ahmedabad',
-      comments: (record.stageNotes?.[getStageKeyForStatus(record.status)]) || record.comments || record.remarks || '',
-      remarks: (record.stageNotes?.[getStageKeyForStatus(record.status)]) || record.remarks || record.comments || '',
-      entryDate: record.entryDate
-        ? new Date(record.entryDate).toISOString().slice(0, 10)
-        : todayIso(),
-      interviewDate: record.interviewDate
-        ? new Date(record.interviewDate).toISOString().slice(0, 10)
-        : '',
-      interviewTime: record.interviewTime || '',
-    });
-  };
-
   const save = async () => {
-    if (!form.candidateName.trim()) {
-      feedback.error('Candidate Name is required.');
-      return;
-    }
-    if (!form.phoneNumber.trim()) {
-      feedback.error('Phone Number is required.');
-      return;
-    }
-    const notes = (form.comments || form.remarks || '').trim();
-    if (!notes) {
-      feedback.error('Comments / Notes are mandatory.');
+    const { isValid, errors } = validateCandidateForm(form);
+    if (!isValid) {
+      setFormErrors(errors);
+      const allTouched = {};
+      Object.keys(errors).forEach((k) => { allTouched[k] = true; });
+      setTouched((prev) => ({ ...prev, ...allTouched }));
+      const firstError = Object.values(errors)[0];
+      feedback.error(firstError || 'Please fix the errors in the form before saving.');
       return;
     }
 
     setSubmitting(true);
     try {
+      const notes = (form.comments || form.remarks || '').trim();
       const currentKey = getStageKeyForStatus(form.status);
-      const prevStageNotes = selected && selected !== 'new' ? { ...(selected.stageNotes || {}) } : {};
-      prevStageNotes[currentKey] = notes;
+      const prevStageNotes = {};
+      if (notes) prevStageNotes[currentKey] = notes;
 
       const payload = {
         ...form,
@@ -426,22 +568,9 @@ const ManageInterviews = () => {
         comments: notes,
         remarks: notes,
       };
-      let savedCandidate = null;
-      if (selected === 'new') {
-        const res = await api.post('/api/interviews', payload);
-        savedCandidate = res.data;
-      } else {
-        const res = await api.put(`/api/interviews/${selected._id}`, payload);
-        savedCandidate = res.data;
-      }
-      feedback.success(
-        selected === 'new' ? 'Candidate created successfully' : 'Candidate updated successfully'
-      );
+      await api.post('/api/interviews', payload);
+      feedback.success('Candidate created successfully');
       setSelected(null);
-      if (editingFromDetails && savedCandidate) {
-        setViewingCandidate(savedCandidate);
-        setEditingFromDetails(false);
-      }
       load();
     } catch (requestError) {
       feedback.error(getApiError(requestError, 'Unable to save candidate'));
@@ -477,6 +606,17 @@ const ManageInterviews = () => {
         actions={
           <div className="flex items-center gap-2">
             <ToolbarButton
+              icon={Link2}
+              onClick={() => {
+                const base = (import.meta.env.VITE_ASSESSMENT_PORTAL_URL || `${window.location.protocol}//${window.location.hostname}:5174`).replace(/\/$/, '');
+                const url = `${base}/register`;
+                navigator.clipboard.writeText(url);
+                feedback.success(`Assessment link copied: ${url}`);
+              }}
+            >
+              Copy Assessment Link
+            </ToolbarButton>
+            <ToolbarButton
               icon={Download}
               onClick={() =>
                 downloadCsv(`recruitment-${activeSectionKey}-candidates.csv`, filtered)
@@ -487,7 +627,8 @@ const ManageInterviews = () => {
             <button
               type="button"
               onClick={openCreate}
-              className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl px-4 py-2 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
+              className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
             >
               <Plus size={14} />
               <span>Add Candidate</span>
@@ -498,39 +639,35 @@ const ManageInterviews = () => {
 
       {/* 2. Pipeline Section Navigation Switcher Pills */}
       <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-2xs w-fit">
-        <button
-          type="button"
-          onClick={() => setMainSection('daily')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-            activeSectionKey === 'daily'
-              ? 'bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 font-bold shadow-2xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          Daily Candidate Update
-        </button>
-        <button
-          type="button"
-          onClick={() => setMainSection('interview')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-            activeSectionKey === 'interview'
-              ? 'bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 font-bold shadow-2xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          Interview Candidate Updates
-        </button>
-        <button
-          type="button"
-          onClick={() => setMainSection('training')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-            activeSectionKey === 'training'
-              ? 'bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 font-bold shadow-2xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          Training Candidates
-        </button>
+        {[
+          { key: 'daily', label: 'Daily Candidate Update' },
+          { key: 'assessment', label: 'Assessment Update' },
+          { key: 'interview', label: 'Interview Candidate Updates' },
+          { key: 'training', label: 'Training Candidates' },
+        ].map((sec) => {
+          const isActive = activeSectionKey === sec.key;
+          return (
+            <button
+              key={sec.key}
+              type="button"
+              onClick={() => setMainSection(sec.key)}
+              style={
+                isActive
+                  ? {
+                      color: 'var(--erp-primary, #2563eb)',
+                    }
+                  : undefined
+              }
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                isActive
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 font-bold shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {sec.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* 3. Pipeline Subtabs with Clean Underline Indicator */}
@@ -543,17 +680,33 @@ const ManageInterviews = () => {
               key={tab.id}
               type="button"
               onClick={() => setActiveSubTab(tab.id)}
+              style={
+                isActive
+                  ? {
+                      borderColor: 'var(--erp-primary, #2563eb)',
+                      color: 'var(--erp-primary, #2563eb)',
+                    }
+                  : undefined
+              }
               className={`flex items-center gap-2 pb-2.5 text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 border-b-2 -mb-px ${
                 isActive
-                  ? 'border-teal-500 text-teal-600 dark:text-teal-400 font-bold'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
             >
               <span>{tab.label}</span>
               <span
+                style={
+                  isActive
+                    ? {
+                        backgroundColor: 'color-mix(in srgb, var(--erp-primary, #2563eb) 12%, transparent)',
+                        color: 'var(--erp-primary, #2563eb)',
+                      }
+                    : undefined
+                }
                 className={`text-[11px] font-bold px-1.5 py-0.2 rounded-full ${
                   isActive
-                    ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300'
+                    ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                 }`}
               >
@@ -615,26 +768,34 @@ const ManageInterviews = () => {
         </div>
 
         {/* Content Area: Candidates Pipeline Table */}
-        {filtered.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  <th className="py-2.5 pl-4 sm:pl-5 pr-2.5">CANDIDATE</th>
-                  <th className="py-2.5 px-2.5">PHONE NUMBER</th>
-                  <th className="py-2.5 px-2.5">POST</th>
-                  <th className="py-2.5 px-2.5">BRANCH</th>
-                  <th className="py-2.5 px-2.5">STATUS</th>
-                  <th className="py-2.5 px-2.5">SCHEDULED TIMING</th>
-                  <th className="py-2.5 px-2.5">COMMENTS / NOTES</th>
-                  <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTIONS</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <th className="py-2.5 pl-4 sm:pl-5 pr-2.5">CANDIDATE</th>
+                <th className="py-2.5 px-2.5">PHONE NUMBER</th>
+                <th className="py-2.5 px-2.5">POST</th>
+                <th className="py-2.5 px-2.5">BRANCH</th>
+                <th className="py-2.5 px-2.5">STATUS</th>
+                <th className="py-2.5 px-2.5">
+                  {activeSectionKey === 'assessment' ? 'ASSESSMENT SCORE' : 'SCHEDULED TIMING'}
+                </th>
+                <th className="py-2.5 px-2.5">COMMENTS / NOTES</th>
+                <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="py-12 text-center text-slate-400 dark:text-slate-500 font-normal">
+                    No candidates found.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                {filtered.map((record) => (
+              ) : (
+                filtered.map((record) => (
                   <tr
                     key={record._id}
-                    onClick={() => setViewingCandidate(record)}
+                    onClick={() => navigate(`/interview/${record._id}`)}
                     className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                   >
                     <td className="py-2.5 pl-4 sm:pl-5 pr-2.5">
@@ -642,7 +803,7 @@ const ManageInterviews = () => {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setViewingCandidate(record);
+                          navigate(`/interview/${record._id}`);
                         }}
                         className="flex items-center gap-3 text-left cursor-pointer group"
                       >
@@ -676,7 +837,29 @@ const ManageInterviews = () => {
                       </StatusBadge>
                     </td>
                     <td className="py-2.5 px-2.5 text-slate-600 dark:text-slate-400">
-                      {record.interviewDate ? (
+                      {activeSectionKey === 'assessment' ? (
+                        record.interviewScore && record.interviewScore !== 'Pending' ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                              record.status === 'Green'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                : record.status === 'Yellow'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                : record.status === 'Red'
+                                ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                                : record.status === 'Running'
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 animate-pulse'
+                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            {String(record.interviewScore).replace(/\s*\(\d+%\)/g, '')}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-medium text-[11px] italic">
+                            {record.status === 'Running' ? 'In progress...' : 'Pending exam'}
+                          </span>
+                        )
+                      ) : record.interviewDate ? (
                         <div>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
                             {formatDate(record.interviewDate)}
@@ -706,9 +889,9 @@ const ManageInterviews = () => {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setViewingCandidate(record);
+                            navigate(`/interview/${record._id}`);
                           }}
-                          title="View Candidate Details"
+                          title="View Candidate Profile"
                         >
                           <Eye size={14} />
                         </button>
@@ -717,7 +900,7 @@ const ManageInterviews = () => {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            openEdit(record);
+                            navigate(`/edit-candidate/${record._id}`);
                           }}
                           title="Edit"
                         >
@@ -737,21 +920,11 @@ const ManageInterviews = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            title={`No candidates found in "${activeSubTab}"`}
-            message={`There are currently no candidates matching the "${activeSubTab}" pipeline stage in ${branchFilter || 'all branches'}.`}
-            action={
-              <ToolbarButton primary icon={Plus} onClick={openCreate}>
-                Add Candidate
-              </ToolbarButton>
-            }
-          />
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
         {/* Card Footer */}
         <div className="p-3.5 sm:p-4 bg-slate-50/50 dark:bg-slate-850 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
@@ -760,24 +933,17 @@ const ManageInterviews = () => {
         </div>
       </section>
 
-      {/* 1. Add Candidate Modal - Simple Creation Form (Matches Image 1) */}
+      {/* 1. Add Candidate Modal - Simple Creation Form */}
       <Modal
         open={selected === 'new'}
         size="lg"
         title="Add New Candidate"
-        subtitle="Daily candidate update & recruiter master record"
-        onClose={() => {
-          setSelected(null);
-          setEditingFromDetails(false);
-        }}
+        onClose={() => setSelected(null)}
         footer={
           <div className="flex items-center justify-end gap-3 w-full">
             <button
               type="button"
-              onClick={() => {
-                setSelected(null);
-                setEditingFromDetails(false);
-              }}
+              onClick={() => setSelected(null)}
               className="border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-xs font-semibold shadow-2xs transition cursor-pointer"
             >
               Cancel
@@ -786,6 +952,7 @@ const ManageInterviews = () => {
               type="button"
               disabled={submitting}
               onClick={save}
+              style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl px-5 py-2 text-xs font-semibold shadow-xs transition cursor-pointer"
             >
               {submitting ? 'Creating…' : 'Create Candidate'}
@@ -801,26 +968,45 @@ const ManageInterviews = () => {
                 Candidate Name <span className="text-rose-500">*</span>
               </label>
               <input
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="e.g. Saloni Chavan"
+                className={`w-full bg-white dark:bg-slate-900 border ${
+                  touched.candidateName && formErrors.candidateName
+                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition`}
+                placeholder="e.g. Rahul Sharma"
                 value={form.candidateName}
-                onChange={(event) =>
-                  setForm({ ...form, candidateName: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('candidateName', event.target.value)}
+                onBlur={() => handleFieldBlur('candidateName')}
               />
+              {touched.candidateName && formErrors.candidateName && (
+                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{formErrors.candidateName}</span>
+                </p>
+              )}
             </div>
+
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
                 Phone Number <span className="text-rose-500">*</span>
               </label>
               <input
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="e.g. 8149931409"
+                className={`w-full bg-white dark:bg-slate-900 border ${
+                  touched.phoneNumber && formErrors.phoneNumber
+                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition`}
+                placeholder="e.g. +91 98765 43210 or 9876543210"
                 value={form.phoneNumber}
-                onChange={(event) =>
-                  setForm({ ...form, phoneNumber: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('phoneNumber', event.target.value)}
+                onBlur={() => handleFieldBlur('phoneNumber')}
               />
+              {touched.phoneNumber && formErrors.phoneNumber && (
+                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{formErrors.phoneNumber}</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -832,11 +1018,10 @@ const ManageInterviews = () => {
               </label>
               <input
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="e.g. Workindia, Referral, HR Name"
+                placeholder="e.g. WK-50EC430D1592-2026 or Workindia / Referral"
                 value={form.candidateReference}
-                onChange={(event) =>
-                  setForm({ ...form, candidateReference: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('candidateReference', event.target.value)}
+                onBlur={() => handleFieldBlur('candidateReference')}
               />
             </div>
             <div>
@@ -845,12 +1030,21 @@ const ManageInterviews = () => {
               </label>
               <input
                 type="date"
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+                className={`w-full bg-white dark:bg-slate-900 border ${
+                  touched.entryDate && formErrors.entryDate
+                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none transition cursor-pointer`}
                 value={form.entryDate}
-                onChange={(event) =>
-                  setForm({ ...form, entryDate: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('entryDate', event.target.value)}
+                onBlur={() => handleFieldBlur('entryDate')}
               />
+              {touched.entryDate && formErrors.entryDate && (
+                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{formErrors.entryDate}</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -861,13 +1055,22 @@ const ManageInterviews = () => {
                 Candidate Post
               </label>
               <input
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="BDA Telesale"
+                className={`w-full bg-white dark:bg-slate-900 border ${
+                  touched.candidatePost && formErrors.candidatePost
+                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition`}
+                placeholder="e.g. Fullstack Developer / Telesales Executive"
                 value={form.candidatePost}
-                onChange={(event) =>
-                  setForm({ ...form, candidatePost: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('candidatePost', event.target.value)}
+                onBlur={() => handleFieldBlur('candidatePost')}
               />
+              {touched.candidatePost && formErrors.candidatePost && (
+                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{formErrors.candidatePost}</span>
+                </p>
+              )}
             </div>
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
@@ -876,9 +1079,7 @@ const ManageInterviews = () => {
               <select
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
                 value={form.status}
-                onChange={(event) =>
-                  setForm({ ...form, status: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('status', event.target.value)}
               >
                 <optgroup label="Daily Stage">
                   <option value="New candidates info">New candidates info</option>
@@ -886,8 +1087,15 @@ const ManageInterviews = () => {
                   <option value="Rescheduled">Rescheduled</option>
                   <option value="No Response">No Response</option>
                 </optgroup>
-                <optgroup label="Interview Rounds">
+                <optgroup label="Assessment Update">
+                  <option value="Pending">Pending</option>
+                  <option value="Running">Running</option>
+                  <option value="Red">Red</option>
+                  <option value="Yellow">Yellow</option>
+                  <option value="Green">Green</option>
                   <option value="Assessment Done">Assessment Done</option>
+                </optgroup>
+                <optgroup label="Interview Rounds">
                   <option value="1st Round">1st Round</option>
                   <option value="2nd Round">2nd Round</option>
                   <option value="Selected">Selected</option>
@@ -912,12 +1120,21 @@ const ManageInterviews = () => {
               </label>
               <input
                 type="date"
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+                className={`w-full bg-white dark:bg-slate-900 border ${
+                  touched.interviewDate && formErrors.interviewDate
+                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none transition cursor-pointer`}
                 value={form.interviewDate}
-                onChange={(event) =>
-                  setForm({ ...form, interviewDate: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('interviewDate', event.target.value)}
+                onBlur={() => handleFieldBlur('interviewDate')}
               />
+              {touched.interviewDate && formErrors.interviewDate && (
+                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{formErrors.interviewDate}</span>
+                </p>
+              )}
             </div>
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
@@ -925,11 +1142,10 @@ const ManageInterviews = () => {
               </label>
               <input
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="e.g. 03:00 PM"
+                placeholder="e.g. 10:00 AM or 02:30 PM"
                 value={form.interviewTime}
-                onChange={(event) =>
-                  setForm({ ...form, interviewTime: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('interviewTime', event.target.value)}
+                onBlur={() => handleFieldBlur('interviewTime')}
               />
             </div>
           </div>
@@ -943,9 +1159,7 @@ const ManageInterviews = () => {
               <select
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
                 value={form.branch}
-                onChange={(event) =>
-                  setForm({ ...form, branch: event.target.value })
-                }
+                onChange={(event) => handleFieldChange('branch', event.target.value)}
               >
                 {BRANCH_OPTIONS.map((branch) => (
                   <option key={branch} value={branch}>
@@ -963,424 +1177,22 @@ const ManageInterviews = () => {
             </label>
             <textarea
               rows={4}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition resize-y"
-              placeholder="e.g. 10.14: She asking for WFH / Not able to do night shift (Mandatory)"
+              className={`w-full bg-white dark:bg-slate-900 border ${
+                touched.comments && formErrors.comments
+                  ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                  : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+              } rounded-lg p-3 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition resize-y`}
+              placeholder="Enter recruiter feedback, interview discussion notes, or requirements... (Mandatory, min 5 chars)"
               value={form.comments}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  comments: event.target.value,
-                  remarks: event.target.value,
-                })
-              }
+              onChange={(event) => handleFieldChange('comments', event.target.value)}
+              onBlur={() => handleFieldBlur('comments')}
             />
-          </div>
-        </div>
-      </Modal>
-
-      {/* 2. Edit Candidate Modal - Comprehensive 2-Column Form (Matches Image 2) */}
-      <Modal
-        open={Boolean(selected && selected !== 'new')}
-        size="xl"
-        title="Edit Candidate"
-        subtitle="Daily candidate update & recruiter master record"
-        onClose={() => {
-          setSelected(null);
-          setEditingFromDetails(false);
-        }}
-        footer={
-          <div className="flex items-center justify-end gap-3 w-full">
-            <button
-              type="button"
-              onClick={() => {
-                setSelected(null);
-                setEditingFromDetails(false);
-              }}
-              className="border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-xs font-semibold shadow-2xs transition cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={save}
-              className="bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition cursor-pointer"
-            >
-              {submitting ? 'Saving…' : 'Save Candidate'}
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Left Card: Personal Information */}
-            <div className="bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-200/80 dark:border-slate-800 pb-2">
-                <FileText size={15} className="text-blue-500" />
-                <span>Personal Information</span>
-              </div>
-
-              {/* Candidate Name * */}
-              <div>
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                  Candidate Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                  placeholder="e.g. Mahendra Siloriya"
-                  value={form.candidateName}
-                  onChange={(event) =>
-                    setForm({ ...form, candidateName: event.target.value })
-                  }
-                />
-              </div>
-
-              {/* Email & Phone Number */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. mahisiloriya@gmail.com"
-                    value={form.email}
-                    onChange={(event) =>
-                      setForm({ ...form, email: event.target.value })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Mobile / Phone <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. 9630852516"
-                    value={form.phoneNumber}
-                    onChange={(event) =>
-                      setForm({ ...form, phoneNumber: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Gender & Marital Status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Gender
-                  </label>
-                  <select
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                    value={form.gender}
-                    onChange={(event) =>
-                      setForm({ ...form, gender: event.target.value })
-                    }
-                  >
-                    <option value="">Select Gender</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Marital Status
-                  </label>
-                  <select
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                    value={form.maritalStatus}
-                    onChange={(event) =>
-                      setForm({ ...form, maritalStatus: event.target.value })
-                    }
-                  >
-                    <option value="">Select Status</option>
-                    <option value="Single">Single</option>
-                    <option value="Married">Married</option>
-                    <option value="Divorced">Divorced</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Address */}
-              <div>
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                  Address
-                </label>
-                <input
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                  placeholder="e.g. Ahmedabad, Gujarat"
-                  value={form.address}
-                  onChange={(event) =>
-                    setForm({ ...form, address: event.target.value })
-                  }
-                />
-              </div>
-
-              {/* Experience & Experience Type */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Experience
-                  </label>
-                  <input
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. 0 Years / 2 Years"
-                    value={form.experience}
-                    onChange={(event) =>
-                      setForm({ ...form, experience: event.target.value })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Experience Type
-                  </label>
-                  <select
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                    value={form.experienceType}
-                    onChange={(event) =>
-                      setForm({ ...form, experienceType: event.target.value })
-                    }
-                  >
-                    <option value="">Select Type</option>
-                    <option value="Fresher">Fresher</option>
-                    <option value="Experienced">Experienced</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Registered On / Entry Date */}
-              <div>
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                  Registered On / Entry Date
-                </label>
-                <input
-                  type="date"
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                  value={form.entryDate}
-                  onChange={(event) =>
-                    setForm({ ...form, entryDate: event.target.value })
-                  }
-                />
-              </div>
-            </div>
-
-            {/* Right Card: Professional Details */}
-            <div className="bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white border-b border-slate-200/80 dark:border-slate-800 pb-2">
-                <Briefcase size={15} className="text-blue-500" />
-                <span>Professional Details</span>
-              </div>
-
-              {/* Designation / Applied Post */}
-              <div>
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                  Designation / Applied Post
-                </label>
-                <input
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                  placeholder="e.g. Customer Support Associate"
-                  value={form.candidatePost}
-                  onChange={(event) =>
-                    setForm({ ...form, candidatePost: event.target.value })
-                  }
-                />
-              </div>
-
-              {/* CV / Resume Link */}
-              <div>
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                  CV / Resume Link (or File Name)
-                </label>
-                <input
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                  placeholder="e.g. https://... or mahendra_resume_cs.pdf"
-                  value={form.cvUrl}
-                  onChange={(event) =>
-                    setForm({ ...form, cvUrl: event.target.value })
-                  }
-                />
-              </div>
-
-              {/* Source & Reference */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Source (Candidate Reference)
-                  </label>
-                  <input
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. Walk-in Drive, LinkedIn"
-                    value={form.candidateReference}
-                    onChange={(event) =>
-                      setForm({ ...form, candidateReference: event.target.value })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Reference
-                  </label>
-                  <input
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. Internal Ref / Code"
-                    value={form.reference}
-                    onChange={(event) =>
-                      setForm({ ...form, reference: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Status & Interview Status / Score */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Status
-                  </label>
-                  <select
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                    value={form.status}
-                    onChange={(event) =>
-                      setForm({ ...form, status: event.target.value })
-                    }
-                  >
-                    <optgroup label="Daily Stage">
-                      <option value="New candidates info">New candidates info</option>
-                      <option value="Interview Scheduled">Interview Scheduled</option>
-                      <option value="Rescheduled">Rescheduled</option>
-                      <option value="No Response">No Response</option>
-                    </optgroup>
-                    <optgroup label="Interview Rounds">
-                      <option value="Assessment Done">Assessment Done</option>
-                      <option value="1st Round">1st Round</option>
-                      <option value="2nd Round">2nd Round</option>
-                      <option value="Selected">Selected</option>
-                      <option value="Rejected">Rejected</option>
-                    </optgroup>
-                    <optgroup label="Training Stage">
-                      <option value="Ongoing">Ongoing (Training)</option>
-                      <option value="Completed">Completed</option>
-                      <option value="Ineligible">Ineligible</option>
-                      <option value="Left">Left</option>
-                      <option value="Discontinued">Discontinued</option>
-                    </optgroup>
-                    {form.status &&
-                      ![
-                        'New candidates info',
-                        'Interview Scheduled',
-                        'Rescheduled',
-                        'No Response',
-                        'Assessment Done',
-                        '1st Round',
-                        '2nd Round',
-                        'Selected',
-                        'Rejected',
-                        'Ongoing',
-                        'Completed',
-                        'Ineligible',
-                        'Left',
-                        'Discontinued',
-                      ].includes(form.status) && (
-                        <option value={form.status}>{form.status}</option>
-                      )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Interview Status / Score
-                  </label>
-                  <input
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. 30/50"
-                    value={form.interviewScore}
-                    onChange={(event) =>
-                      setForm({ ...form, interviewScore: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Schedule Interview Date & Time */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Schedule Interview Date
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                    value={form.interviewDate}
-                    onChange={(event) =>
-                      setForm({ ...form, interviewDate: event.target.value })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                    Schedule Interview Time
-                  </label>
-                  <input
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                    placeholder="e.g. 11:00 AM"
-                    value={form.interviewTime}
-                    onChange={(event) =>
-                      setForm({ ...form, interviewTime: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Branch */}
-              <div>
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                  Branch
-                </label>
-                <select
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
-                  value={form.branch}
-                  onChange={(event) =>
-                    setForm({ ...form, branch: event.target.value })
-                  }
-                >
-                  {BRANCH_OPTIONS.map((branch) => (
-                    <option key={branch} value={branch}>
-                      {branch}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Comments / Notes * (Mandatory) */}
-          <div className="bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-800 p-4">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-              Comments / Notes <span className="text-rose-500">* (Mandatory)</span>
-            </label>
-            <textarea
-              rows={3}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition resize-y"
-              placeholder="Enter recruiter feedback, interview discussion notes, or requirements..."
-              value={form.comments}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  comments: event.target.value,
-                  remarks: event.target.value,
-                })
-              }
-            />
+            {touched.comments && formErrors.comments && (
+              <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                <AlertCircle size={12} className="flex-shrink-0" />
+                <span>{formErrors.comments}</span>
+              </p>
+            )}
           </div>
         </div>
       </Modal>
@@ -1392,8 +1204,7 @@ const ManageInterviews = () => {
         onClose={() => setViewingCandidate(null)}
         onEdit={(cand) => {
           setViewingCandidate(null);
-          setEditingFromDetails(true);
-          openEdit(cand);
+          navigate(`/edit-candidate/${cand._id}`);
         }}
         onDelete={(cand) => {
           setViewingCandidate(null);

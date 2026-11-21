@@ -1,8 +1,28 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import PageLoader from './components/common/PageLoader';
 import { ADMIN_ROLES, HR_ROLES, RECRUITMENT_ROLES } from './lib/access';
+
+const AssessmentRedirect = () => {
+  useEffect(() => {
+    const portalUrl = (
+      import.meta.env.VITE_ASSESSMENT_PORTAL_URL ||
+      `${window.location.protocol}//${window.location.hostname}:5174`
+    ).replace(/\/$/, '');
+    const path = window.location.pathname.replace(/^\/assessment/, '');
+    window.location.href = `${portalUrl}${path || '/register'}${window.location.search}`;
+  }, []);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+      <div className="text-center space-y-3">
+        <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-xs text-slate-500 font-medium">Redirecting to Candidate Assessment Portal…</p>
+      </div>
+    </div>
+  );
+};
 
 const Layout = lazy(() => import('./components/Layout'));
 const Login = lazy(() => import('./pages/Login'));
@@ -36,6 +56,7 @@ const TakeBreak = lazy(() => import('./pages/TakeBreak'));
 const AttendanceDetail = lazy(() => import('./pages/AttendanceDetail'));
 const ManageInterviews = lazy(() => import('./pages/ManageInterviews'));
 const InterviewDetails = lazy(() => import('./pages/InterviewDetails'));
+const EditCandidate = lazy(() => import('./pages/EditCandidate'));
 const ManageDepartments = lazy(() => import('./pages/ManageDepartments'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const EmployeeWorkspacePage = lazy(() => import('./pages/EmployeeWorkspacePage'));
@@ -54,6 +75,8 @@ const App = () => (
       <Route path="/forgot-password" element={<PasswordRecovery />} />
       <Route path="/reset-password" element={<PasswordRecovery reset />} />
       <Route path="/unauthorized" element={<Forbidden />} />
+      <Route path="/assessment/*" element={<AssessmentRedirect />} />
+      <Route path="/assessment" element={<AssessmentRedirect />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
@@ -96,6 +119,7 @@ const App = () => (
           <Route element={<ProtectedRoute allowedRoles={RECRUITMENT_ROLES} allowedPermissions={['recruitment.read']} />}>
             <Route path="manage-interviews" element={<ManageInterviews />} />
             <Route path="interview/:id" element={<InterviewDetails />} />
+            <Route path="edit-candidate/:id" element={<EditCandidate />} />
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} allowedPermissions={['payroll.read']} />}>

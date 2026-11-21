@@ -21,20 +21,45 @@
 
 .bg-\[\#2563eb\],
 .bg-blue-600,
-.bg-blue-500 {
+.bg-blue-500,
+.bg-\[\#8B1D2C\],
+.bg-\[\#8b1d2c\],
+.bg-\[\#8B1D24\],
+.bg-\[\#8b1d24\] {
   background-color: var(--erp-primary, #2563eb) !important;
 }
 
 .text-\[\#2563eb\],
 .text-blue-600,
-.text-blue-500 {
+.text-blue-500,
+.text-\[\#8B1D2C\],
+.text-\[\#8b1d2c\],
+.text-\[\#8B1D24\],
+.text-\[\#8b1d24\] {
   color: var(--erp-primary, #2563eb) !important;
 }
 
 .border-\[\#2563eb\],
 .border-blue-600,
-.border-blue-500 {
+.border-blue-500,
+.border-\[\#8B1D2C\],
+.border-\[\#8b1d2c\],
+.border-\[\#8B1D24\],
+.border-\[\#8b1d24\] {
   border-color: var(--erp-primary, #2563eb) !important;
+}
+
+.border-t-\[\#8B1D2C\],
+.border-t-\[\#8b1d2c\],
+.border-t-\[\#8B1D24\],
+.border-t-\[\#8b1d24\] {
+  border-top-color: var(--erp-primary, #2563eb) !important;
+}
+
+.hover\:bg-\[\#721622\]:hover,
+.hover\:bg-\[\#741724\]:hover,
+.hover\:bg-\[\#72171D\]:hover {
+  background-color: color-mix(in srgb, var(--erp-primary, #2563eb) 85%, black) !important;
 }
 
 /* Dynamic theme gradients */
@@ -9184,6 +9209,514 @@ main::-webkit-scrollbar-thumb:hover {
 .erp-wave-bar-center {
   animation: erp-wave-center 1.25s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
+
+/* ========================================================================== */
+/* Top-Right Notification Pop Animation                                       */
+/* ========================================================================== */
+
+@keyframes notification-pop-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(60px, -24px, 0) scale(0.85);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(-4px, 2px, 0) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes notification-pop-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    max-height: 140px;
+    margin-bottom: 0.5rem;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(80px, -10px, 0) scale(0.88);
+    max-height: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+}
+
+.animate-notification-pop {
+  animation: notification-pop-in 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-notification-exit {
+  animation: notification-pop-out 0.26s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes progress-shrink {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+
+/* ========================================================================== */
+/* Interactive Birthday Celebration & Dancing Stickman Keyframes             */
+/* ========================================================================== */
+
+@keyframes birthday-avatar-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px #f43f5e, 0 0 12px rgba(244, 63, 94, 0.75), 0 0 22px rgba(251, 191, 36, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 3.5px #fbbf24, 0 0 20px rgba(251, 191, 36, 0.95), 0 0 32px rgba(244, 63, 94, 0.75);
+    transform: scale(1.06);
+  }
+}
+
+.birthday-avatar-glow {
+  animation: birthday-avatar-pulse 2.2s ease-in-out infinite;
+  will-change: transform, box-shadow;
+}
+
+@keyframes balloon-float {
+  0% {
+    transform: translateY(115vh);
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.95;
+  }
+  92% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translateY(-25vh);
+    opacity: 0;
+  }
+}
+
+@keyframes balloon-sway-left {
+  0%, 100% {
+    transform: rotate(-6deg) translateX(-12px);
+  }
+  50% {
+    transform: rotate(7deg) translateX(14px);
+  }
+}
+
+@keyframes balloon-sway-right {
+  0%, 100% {
+    transform: rotate(8deg) translateX(14px);
+  }
+  50% {
+    transform: rotate(-7deg) translateX(-12px);
+  }
+}
+
+@keyframes birthday-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) translateY(50px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.18) translateY(-10px);
+  }
+  80% {
+    transform: scale(0.95) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes birthday-bounce-loop {
+  0%, 100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  30% {
+    transform: translateY(-16px) scale(1.04, 0.96);
+  }
+  50% {
+    transform: translateY(0) scale(0.98, 1.02);
+  }
+  70% {
+    transform: translateY(-7px) scale(1.02, 0.98);
+  }
+}
+
+@keyframes birthday-gold-shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-birthday-title {
+  animation: birthday-pop-in 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.animate-birthday-bounce {
+  animation: birthday-bounce-loop 2s cubic-bezier(0.28, 0.84, 0.42, 1) infinite;
+}
+
+/* Dancing Stickman Choreography */
+@keyframes stickman-groove-disco {
+  0%, 100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  25% {
+    transform: translateY(-28px) scale(0.96, 1.05) rotate(4deg);
+  }
+  50% {
+    transform: translateY(0) scale(1.06, 0.94);
+  }
+  75% {
+    transform: translateY(-30px) scale(0.95, 1.06) rotate(-4deg);
+  }
+}
+
+@keyframes stickman-groove-wiggle {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-12px) rotate(7deg) scale(1.02);
+  }
+  50% {
+    transform: translateY(0) rotate(-6deg) scale(0.98);
+  }
+  75% {
+    transform: translateY(-16px) rotate(8deg) scale(1.03);
+  }
+}
+
+@keyframes stickman-groove-jump {
+  0%, 100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  20% {
+    transform: translateY(6px) scale(1.12, 0.88);
+  }
+  45% {
+    transform: translateY(-55px) scale(0.92, 1.14);
+  }
+  70% {
+    transform: translateY(0) scale(1.08, 0.92);
+  }
+  85% {
+    transform: translateY(-12px) scale(0.98, 1.02);
+  }
+}
+
+@keyframes stickman-head-bob {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-5px) rotate(10deg);
+  }
+  50% {
+    transform: translateY(3px) rotate(0deg);
+  }
+  75% {
+    transform: translateY(-5px) rotate(-10deg);
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0.9;
+  }
+}
+
+/* ========================================================================== */
+/* ADVANCED CARTOON STICKMAN CHOREOGRAPHY & PARTY FX                          */
+/* ========================================================================== */
+
+@keyframes stickman-floss-groove {
+  0%, 100% {
+    transform: translateX(0) scale(1, 1);
+  }
+  25% {
+    transform: translateX(-18px) skewX(-7deg) scale(1.02, 0.98);
+  }
+  50% {
+    transform: translateX(0) scale(0.98, 1.02);
+  }
+  75% {
+    transform: translateX(18px) skewX(7deg) scale(1.02, 0.98);
+  }
+}
+
+@keyframes stickman-jelly-groove {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  20% {
+    transform: translateY(-8px) rotate(8deg) scale(1.05, 0.95);
+  }
+  40% {
+    transform: translateY(2px) rotate(-7deg) scale(0.95, 1.05);
+  }
+  60% {
+    transform: translateY(-12px) rotate(9deg) scale(1.04, 0.96);
+  }
+  80% {
+    transform: translateY(3px) rotate(-6deg) scale(0.96, 1.04);
+  }
+}
+
+@keyframes stickman-rockout-groove {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  20% {
+    transform: translateY(6px) rotate(-6deg) scale(1.08, 0.92);
+  }
+  40% {
+    transform: translateY(-40px) rotate(8deg) scale(0.92, 1.12);
+  }
+  70% {
+    transform: translateY(2px) rotate(-5deg) scale(1.05, 0.95);
+  }
+  85% {
+    transform: translateY(-20px) rotate(4deg) scale(0.96, 1.04);
+  }
+}
+
+@keyframes stickman-moonwalk-groove {
+  0% {
+    transform: translateX(-35px) scale(1, 1);
+  }
+  50% {
+    transform: translateX(35px) scale(0.98, 1.02);
+  }
+  100% {
+    transform: translateX(-35px) scale(1, 1);
+  }
+}
+
+/* Articulated Limb Animations */
+@keyframes stickman-arm-floss-left {
+  0%, 100% {
+    transform: rotate(-65deg);
+  }
+  50% {
+    transform: rotate(70deg);
+  }
+}
+
+@keyframes stickman-arm-floss-right {
+  0%, 100% {
+    transform: rotate(-70deg);
+  }
+  50% {
+    transform: rotate(65deg);
+  }
+}
+
+@keyframes stickman-arm-disco-left {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-75deg);
+  }
+}
+
+@keyframes stickman-arm-disco-right {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(75deg);
+  }
+}
+
+@keyframes stickman-arm-wave-left {
+  0%, 100% {
+    transform: rotate(-25deg) skewX(-12deg);
+  }
+  50% {
+    transform: rotate(50deg) skewX(18deg);
+  }
+}
+
+@keyframes stickman-arm-wave-right {
+  0%, 100% {
+    transform: rotate(25deg) skewX(12deg);
+  }
+  50% {
+    transform: rotate(-50deg) skewX(-18deg);
+  }
+}
+
+@keyframes stickman-arm-guitar-strum {
+  0%, 100% {
+    transform: rotate(-30deg);
+  }
+  25% {
+    transform: rotate(30deg);
+  }
+  50% {
+    transform: rotate(-35deg);
+  }
+  75% {
+    transform: rotate(25deg);
+  }
+}
+
+@keyframes stickman-arm-guitar-fret {
+  0%, 100% {
+    transform: rotate(-45deg) translateY(0);
+  }
+  50% {
+    transform: rotate(-60deg) translateY(-5px);
+  }
+}
+
+@keyframes stickman-leg-step-left {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-38deg) translateY(-10px);
+  }
+}
+
+@keyframes stickman-leg-step-right {
+  0%, 100% {
+    transform: rotate(38deg) translateY(-10px);
+  }
+  50% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes stickman-leg-floss-left {
+  0%, 100% {
+    transform: rotate(-18deg) skewX(6deg);
+  }
+  50% {
+    transform: rotate(18deg) skewX(-6deg);
+  }
+}
+
+@keyframes stickman-leg-floss-right {
+  0%, 100% {
+    transform: rotate(18deg) skewX(-6deg);
+  }
+  50% {
+    transform: rotate(-18deg) skewX(6deg);
+  }
+}
+
+@keyframes party-blower-extend {
+  0%, 100% {
+    transform: scaleX(0.2) scaleY(0.7);
+    opacity: 0.4;
+  }
+  40%, 60% {
+    transform: scaleX(1.15) scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes stage-spotlight-left {
+  0%, 100% {
+    transform: rotate(-25deg);
+    opacity: 0.35;
+  }
+  50% {
+    transform: rotate(15deg);
+    opacity: 0.7;
+  }
+}
+
+@keyframes stage-spotlight-right {
+  0%, 100% {
+    transform: rotate(25deg);
+    opacity: 0.35;
+  }
+  50% {
+    transform: rotate(-15deg);
+    opacity: 0.7;
+  }
+}
+
+@keyframes disco-floor-glow {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.7));
+  }
+  33% {
+    transform: scale(1.14);
+    filter: drop-shadow(0 0 28px rgba(236, 72, 153, 0.9));
+  }
+  66% {
+    transform: scale(0.93);
+    filter: drop-shadow(0 0 25px rgba(59, 130, 246, 0.9));
+  }
+}
+
+@keyframes music-note-rise {
+  0% {
+    transform: translate(0, 0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate(var(--note-x, 30px), -100px) scale(1.2) rotate(var(--note-rot, 25deg));
+    opacity: 0;
+  }
+}
+
+@keyframes comic-bubble-pop {
+  0% {
+    transform: scale(0) rotate(-15deg);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1.2) rotate(5deg);
+    opacity: 1;
+  }
+  75% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8) translateY(-20px);
+    opacity: 0;
+  }
+}
+
+
 
 
 

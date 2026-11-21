@@ -58,9 +58,6 @@ const HRDashboard = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
             HR Dashboard
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 font-normal">
-            Workforce analytics, recruitment pipeline, and employee attendance.
-          </p>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">

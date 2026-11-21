@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   Briefcase,
   Calendar,
   Check,
@@ -8,6 +9,7 @@ import {
   Download,
   Edit3,
   FileText,
+  Lock,
   Mail,
   MessageCircle,
   Phone,
@@ -16,12 +18,15 @@ import {
   Trash2,
   User,
   X,
+  XCircle,
 } from 'lucide-react';
 import api from '../lib/api';
 import { feedback } from '../lib/feedback';
 
 export const getStageKeyForStatus = (status) => {
   const s = String(status || '').toLowerCase().trim();
+  if (s.includes('rejected')) return 'rejected';
+  if (['pending', 'running', 'red', 'yellow', 'green'].includes(s) || s.includes('assessment')) return 'assessment';
   if (s.includes('1st round')) return 'round1';
   if (s.includes('2nd round')) return 'round2';
   if (s.includes('selected')) return 'selected';
@@ -36,17 +41,79 @@ export const getStageKeyForStatus = (status) => {
     return 'training';
   }
   if (s.includes('joined')) return 'joined';
-  if (s.includes('rejected')) return 'rejected';
   return 'daily';
 };
 
-const STAGE_DEFINITIONS = [
-  { key: 'daily', label: 'Daily Candidate Notes', shortLabel: 'Daily Candidate' },
-  { key: 'round1', label: '1st Round Notes', shortLabel: '1st Round' },
-  { key: 'round2', label: '2nd Round Notes', shortLabel: '2nd Round' },
-  { key: 'selected', label: 'Selection Notes', shortLabel: 'Selected' },
-  { key: 'training', label: 'Training Notes', shortLabel: 'Training' },
+export const STAGE_ORDER = ['daily', 'assessment', 'round1', 'round2', 'selected', 'training'];
+
+export const BASE_STAGE_DEFINITIONS = [
+  { key: 'daily', label: 'Daily Candidate Notes', shortLabel: 'Daily Candidate', level: 0 },
+  { key: 'assessment', label: 'Assessment Notes', shortLabel: 'Assessment', level: 1 },
+  { key: 'round1', label: '1st Round Notes', shortLabel: '1st Round', level: 2 },
+  { key: 'round2', label: '2nd Round Notes', shortLabel: '2nd Round', level: 3 },
+  { key: 'selected', label: 'Selection Notes', shortLabel: 'Selected', level: 4 },
+  { key: 'training', label: 'Training Notes', shortLabel: 'Training', level: 5 },
 ];
+
+export const REJECTION_STAGE_DEF = {
+  key: 'rejected',
+  label: 'Rejection Reason & Notes',
+  shortLabel: 'Rejection',
+  level: -1,
+  isDanger: true,
+};
+
+export const COMMON_REJECTION_REASONS = [
+  'Assessment Score Below Criteria',
+  'Technical Knowledge Gap',
+  'Communication & English Skills',
+  'Salary Expectation Mismatch',
+  'Relevant Experience Insufficient',
+  'Candidate Unreachable / No Show',
+  'Candidate Declined / Opted Out',
+  'Cultural & Behavioral Fit',
+];
+
+export const getCandidateStageLevel = (candidate) => {
+  if (!candidate) return 0;
+  const status = String(candidate.status || '').toLowerCase().trim();
+  const stage = String(candidate.stage || '').toLowerCase().trim();
+
+  if (
+    status.includes('training') ||
+    status.includes('ongoing') ||
+    status.includes('completed') ||
+    status.includes('ineligible') ||
+    status.includes('left') ||
+    status.includes('discontinued') ||
+    status.includes('all trainees') ||
+    status.includes('joined') ||
+    stage.includes('training') ||
+    stage.includes('joined')
+  ) {
+    return 5;
+  }
+  if (status.includes('selected') || stage.includes('selected')) {
+    return 4;
+  }
+  if (status.includes('2nd round') || stage.includes('2nd round')) {
+    return 3;
+  }
+  if (status.includes('1st round') || stage.includes('1st round')) {
+    return 2;
+  }
+  if (
+    ['pending', 'running', 'red', 'yellow', 'green', 'assessment done'].some((k) => status.includes(k)) ||
+    stage.includes('assessment') ||
+    candidate.assessmentKey ||
+    candidate.score !== undefined
+  ) {
+    return 1;
+  }
+  return 0;
+};
+
+const STAGE_DEFINITIONS = BASE_STAGE_DEFINITIONS;
 
 const formatDateTime = (dateVal) => {
   if (!dateVal) return '';
@@ -164,16 +231,44 @@ const CandidateDetailsModal = ({
   // Determine the next pipeline stage based on current status
   const getNextStageInfo = () => {
     const s = String(candidate.status || '').toLowerCase().trim();
-    if (s.includes('new candidate')) return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
-    if (s.includes('interview scheduled')) return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
-    if (s.includes('reschedule')) return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
-    if (s.includes('no response')) return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
-    if (s.includes('assessment')) return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
+    if (
+      s.includes('new candidate') ||
+      s.includes('interview scheduled') ||
+      s.includes('reschedule') ||
+      s.includes('no response')
+    ) {
+      return { label: 'Move to Assessment', nextStatus: 'Pending', nextStage: 'Assessment Update' };
+    }
+    if (s === 'pending') {
+      return { label: 'Start Assessment (Running)', nextStatus: 'Running', nextStage: 'Assessment Update' };
+    }
+    if (s === 'running') {
+      return { label: 'Mark as Green (Passed)', nextStatus: 'Green', nextStage: 'Assessment Update' };
+    }
+    if (['green', 'yellow', 'red', 'assessment done'].includes(s) || s.includes('assessment')) {
+      return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
+    }
     if (s.includes('1st round')) return { label: 'Move to 2nd Round', nextStatus: '2nd Round', nextStage: 'Interview Candidate Updates' };
     if (s.includes('2nd round')) return { label: 'Select Candidate', nextStatus: 'Selected', nextStage: 'Interview Candidate Updates' };
     if (s.includes('selected')) return { label: 'Enroll in Training', nextStatus: 'Ongoing', nextStage: 'Training Candidates' };
-    if (s.includes('ongoing')) return { label: 'Mark as Completed', nextStatus: 'Completed', nextStage: 'Training Candidates' };
+    if (s.includes('ongoing') || s.includes('in training')) return { label: 'Move to Probation', nextStatus: 'Moved to Probation', nextStage: 'Training Candidates' };
+    if (s.includes('probation')) return { label: 'Mark as Completed', nextStatus: 'Completed', nextStage: 'Training Candidates' };
+    if (s.includes('completed')) return { label: 'Onboard Employee', nextStatus: 'Joined', nextStage: 'Joined Candidates' };
     return { label: 'Move to 1st Round', nextStatus: '1st Round', nextStage: 'Interview Candidate Updates' };
+  };
+
+  const handleSetAssessmentStatus = async (newStatus) => {
+    try {
+      const { data } = await api.put(`/api/interviews/${candidate._id}`, {
+        ...candidate,
+        status: newStatus,
+        stage: 'Assessment Update',
+      });
+      feedback.success(`Assessment status updated to "${newStatus}"`);
+      if (onUpdate) onUpdate(data);
+    } catch {
+      feedback.error('Failed to update assessment status');
+    }
   };
 
   const nextStage = getNextStageInfo();
@@ -207,18 +302,22 @@ const CandidateDetailsModal = ({
   };
 
   const handleReject = async () => {
-    try {
-      const updatedStageNotes = { ...stageNotes };
-      const currentKey = getStageKeyForStatus(candidate.status);
-      const noteToSave = updatedStageNotes.rejected || updatedStageNotes[currentKey] || candidate.comments || '';
+    const inputReason = window.prompt(
+      `Please provide the reason why "${candidate.candidateName}" is being rejected:`,
+      'Assessment score below criteria'
+    );
+    if (inputReason === null) return; // cancelled
 
+    const fullReason = inputReason.trim() || 'Assessment score below criteria';
+    try {
+      const updatedStageNotes = { ...stageNotes, rejected: fullReason };
       const { data } = await api.put(`/api/interviews/${candidate._id}`, {
         ...candidate,
         status: 'Rejected',
         stage: 'Interview Candidate Updates',
         stageNotes: updatedStageNotes,
-        comments: noteToSave,
-        remarks: noteToSave,
+        comments: `[Rejected at ${candidate.stage || 'Recruitment'}] ${fullReason}`,
+        remarks: `[Rejected at ${candidate.stage || 'Recruitment'}] ${fullReason}`,
       });
       feedback.info('Candidate marked as Rejected');
       if (onUpdate) onUpdate(data);
@@ -419,10 +518,10 @@ const CandidateDetailsModal = ({
                   )}
 
                   {/* Address */}
-                  {(candidate.address?.trim() || candidate.branch?.trim()) && (
+                  {candidate.address?.trim() && (
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-slate-400 dark:text-slate-500 font-medium">Address</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{candidate.address || candidate.branch}</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">{candidate.address}</span>
                     </div>
                   )}
 
@@ -505,12 +604,42 @@ const CandidateDetailsModal = ({
 
                   {/* Status */}
                   {candidate.status?.trim() && (
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400 dark:text-slate-500 font-medium">Status</span>
-                      <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        {candidate.status}
-                      </span>
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400 dark:text-slate-500 font-medium">Status</span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          {candidate.status}
+                        </span>
+                      </div>
+                      {currentCandidateStageKey === 'assessment' && (
+                        <div className="flex items-center justify-end gap-1 flex-wrap pt-0.5">
+                          {['Pending', 'Running', 'Red', 'Yellow', 'Green'].map((st) => {
+                            const isCurrent = candidate.status?.toLowerCase() === st.toLowerCase();
+                            const colorMap = {
+                              Pending: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300',
+                              Running: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300',
+                              Red: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300',
+                              Yellow: 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-950/60 dark:text-yellow-300',
+                              Green: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300',
+                            };
+                            return (
+                              <button
+                                key={st}
+                                type="button"
+                                onClick={() => handleSetAssessmentStatus(st)}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition cursor-pointer ${
+                                  isCurrent
+                                    ? `${colorMap[st]} ring-1 ring-offset-1 ring-slate-400 font-black`
+                                    : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200'
+                                }`}
+                              >
+                                {st}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -590,42 +719,106 @@ const CandidateDetailsModal = ({
               </button>
             </div>
 
-            {/* Stage Selector Tabs */}
+            {/* Stage Selector Tabs with Level-Wise Unlocking */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-              {STAGE_DEFINITIONS.map((stg) => {
-                const isCurrentCandidateStage = stg.key === currentCandidateStageKey;
-                const isSelectedTab = stg.key === activeNotesStage;
-                const hasNote = Boolean((stageNotes[stg.key] || '').trim());
-                return (
-                  <button
-                    key={stg.key}
-                    type="button"
-                    onClick={() => setActiveNotesStage(stg.key)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
-                      isSelectedTab
-                        ? 'bg-blue-600 text-white shadow-2xs'
-                        : hasNote
-                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-750'
-                        : 'bg-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200/60 dark:border-slate-800'
-                    }`}
-                  >
-                    <span>{stg.shortLabel}</span>
-                    {isCurrentCandidateStage && (
-                      <span
-                        className={`text-[9px] px-1 py-0.2 rounded font-bold ${
-                          isSelectedTab ? 'bg-blue-700 text-blue-100' : 'bg-blue-100 text-blue-700'
-                        }`}
+              {(() => {
+                const isCandidateRejected =
+                  String(candidate.status || '').toLowerCase().includes('rejected') ||
+                  Boolean(stageNotes.rejected);
+                const currentStageLevel = getCandidateStageLevel(candidate);
+                const stageList = isCandidateRejected
+                  ? [...BASE_STAGE_DEFINITIONS, REJECTION_STAGE_DEF]
+                  : BASE_STAGE_DEFINITIONS;
+
+                return stageList.map((stg) => {
+                  const isCurrentCandidateStage = stg.key === currentCandidateStageKey;
+                  const isSelectedTab = stg.key === activeNotesStage;
+                  const hasNote = Boolean((stageNotes[stg.key] || '').trim());
+                  const isLocked =
+                    stg.key !== 'rejected' &&
+                    stg.level > currentStageLevel &&
+                    !hasNote;
+
+                  if (isLocked) {
+                    return (
+                      <button
+                        key={stg.key}
+                        type="button"
+                        disabled
+                        title={`Locked: Candidate has not reached ${stg.shortLabel} yet`}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 opacity-40 cursor-not-allowed bg-transparent text-slate-400 border border-slate-200/50 dark:border-slate-800"
                       >
-                        Current
-                      </span>
-                    )}
-                    {hasNote && !isSelectedTab && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Has notes" />
-                    )}
-                  </button>
-                );
-              })}
+                        <Lock size={10} className="text-slate-400" />
+                        <span>{stg.shortLabel}</span>
+                      </button>
+                    );
+                  }
+
+                  const isDanger = stg.isDanger || stg.key === 'rejected';
+
+                  return (
+                    <button
+                      key={stg.key}
+                      type="button"
+                      onClick={() => setActiveNotesStage(stg.key)}
+                      style={
+                        isSelectedTab
+                          ? isDanger
+                            ? { backgroundColor: '#e11d48', color: '#ffffff' }
+                            : { backgroundColor: 'var(--erp-primary, #2563eb)' }
+                          : undefined
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                        isSelectedTab
+                          ? isDanger
+                            ? 'bg-rose-600 text-white shadow-2xs'
+                            : 'bg-blue-600 text-white shadow-2xs'
+                          : isDanger
+                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-100'
+                          : hasNote
+                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-750'
+                          : 'bg-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 border border-slate-200/60 dark:border-slate-800'
+                      }`}
+                    >
+                      <span>{stg.shortLabel}</span>
+                      {isCurrentCandidateStage && (
+                        <span
+                          className={`text-[9px] px-1 py-0.2 rounded font-bold ${
+                            isSelectedTab ? 'bg-blue-700 text-blue-100' : 'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          Current
+                        </span>
+                      )}
+                      {hasNote && !isSelectedTab && (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            isDanger ? 'bg-rose-500' : 'bg-emerald-500'
+                          }`}
+                          title="Has notes"
+                        />
+                      )}
+                    </button>
+                  );
+                });
+              })()}
             </div>
+
+            {/* Rejection Alert Banner if candidate is rejected */}
+            {(String(candidate.status || '').toLowerCase().includes('rejected') || Boolean(stageNotes.rejected)) && (
+              <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-900 dark:text-rose-200 text-xs flex items-start gap-2">
+                <XCircle size={14} className="text-rose-600 dark:text-rose-400 mt-0.5 shrink-0" />
+                <div className="space-y-0.5">
+                  <span className="font-bold text-rose-700 dark:text-rose-400 text-[11px] uppercase tracking-wider block">
+                    Candidate Rejected
+                  </span>
+                  <p className="text-[11px] text-rose-800 dark:text-rose-300 font-medium leading-relaxed">
+                    <strong>Reason / Notes:</strong>{' '}
+                    {stageNotes.rejected || candidate.comments || 'No specific rejection reason recorded.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Previous Round Notes Preview (if viewing current stage and previous stages have notes) */}
             {previousStagesWithNotes.length > 0 && activeNotesStage === currentCandidateStageKey && (
@@ -673,6 +866,7 @@ const CandidateDetailsModal = ({
                 type="button"
                 disabled={movingRound}
                 onClick={handleNextRound}
+                style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl text-xs shadow-xs flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
               >
                 <RotateCcw size={14} />

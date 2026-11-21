@@ -13,9 +13,14 @@ const attendanceSchema = new mongoose.Schema({
   isLatePenalty: { type: Boolean, default: false, index: true },
   penaltyDeductionHours: { type: Number, default: 0 },
   lateCountInMonth: { type: Number, default: 0 },
+  lateReason: { type: String, trim: true, maxlength: 2000 },
+  lateReasonSubmittedAt: { type: Date },
   extendedUntil: { type: Date },
   overtimeExtensions: { type: Number, default: 0 },
   autoPunchedOut: { type: Boolean, default: false },
+  isManualOverride: { type: Boolean, default: false },
+  manualOverrideReason: { type: String, trim: true },
+  updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true, optimisticConcurrency: true });
 
 attendanceSchema.index({ user: 1, date: 1 }, { unique: true });
@@ -29,6 +34,10 @@ attendanceSchema.pre('validate', function calculateHours() {
     }
     const penalty = this.isLatePenalty ? (this.penaltyDeductionHours || 4.5) : 0;
     this.totalHours = Math.max(0, this.grossHours - penalty);
+
+    if (this.isManualOverride) {
+      return;
+    }
 
     if (this.isLatePenalty) {
       this.status = 'Half Day';

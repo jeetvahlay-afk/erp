@@ -12,10 +12,22 @@ const { dispatchNotifications } = require('../services/notificationService');
 
 const resolveShiftDetails = async (user, date = new Date()) => {
   let shift = null;
+  const shiftSettings = await Settings.findOne({ type: 'shifts' }).lean();
+  const shifts = shiftSettings?.config || [];
   if (user?.shift) {
-    const shiftSettings = await Settings.findOne({ type: 'shifts' }).lean();
-    const shifts = shiftSettings?.config || [];
     shift = shifts.find((s) => s.id === user.shift || s._id === user.shift);
+  }
+  if (!shift && shifts.length > 0) {
+    shift = shifts[0];
+  }
+  if (!shift) {
+    shift = {
+      id: 'default-day',
+      shiftName: 'Day Shift',
+      startTime: '09:30',
+      endTime: '18:30',
+      gracePeriod: 15,
+    };
   }
 
   const isNight = Boolean(
@@ -229,6 +241,7 @@ const getLiveAttendance = asyncHandler(async (req, res) => {
 const punchInOut = asyncHandler(async (req, res) => {
   await autoResolveMissingPunches(req);
   const action = req.body.action || 'auto';
+  const lateReason = req.body.lateReason ? String(req.body.lateReason).trim() : '';
   validators.enumValue(action, ['in', 'out', 'auto'], 'action');
   const shiftDetails = await resolveShiftDetails(req.user);
   const logicalDate = shiftDetails.logicalDate;
@@ -266,6 +279,10 @@ const punchInOut = asyncHandler(async (req, res) => {
     }
 
     if (isLateCheckIn) {
+      if (!lateReason || lateReason.length < 5) {
+        throw new AppError('A valid explanation is required for late check-in. Please submit your reason.', 400, 'LATE_REASON_REQUIRED');
+      }
+
       const istLogical = getISTComponents(logicalDate);
       const startOfMonth = createFromIST(istLogical.year, istLogical.month, 1, 0, 0, 0, 0);
 
@@ -302,6 +319,8 @@ const punchInOut = asyncHandler(async (req, res) => {
             isLatePenalty,
             penaltyDeductionHours,
             lateCountInMonth,
+            lateReason: isLateCheckIn ? lateReason : undefined,
+            lateReasonSubmittedAt: isLateCheckIn ? now : undefined,
           },
         },
         { returnDocument: 'after', upsert: true, runValidators: true },
@@ -316,6 +335,7 @@ const punchInOut = asyncHandler(async (req, res) => {
       lateMinutes,
       penaltyDeductionHours,
       lateCountInMonth,
+      lateReason: record.lateReason || undefined,
       status: record.status,
     });
   } else {
@@ -395,8 +415,28 @@ const punchInOut = asyncHandler(async (req, res) => {
       lateMinutes: record.lateMinutes,
       penaltyDeductionHours: record.penaltyDeductionHours,
       lateCountInMonth: record.lateCountInMonth,
+      lateReason: record.lateReason || undefined,
     },
   });
+
+  if (resolvedAction === 'in' && record.isLateCheckIn && record.lateReason) {
+    await dispatchNotifications({
+      roles: ['admin', 'super admin', 'hr'],
+      title: `Late Check-In: ${req.user.name}`,
+      message: `${req.user.name} checked in ${record.lateMinutes || 0}m late. Reason: "${record.lateReason}".`,
+      type: 'warning',
+      link: '/attendance',
+      createdBy: req.user._id,
+      metadata: {
+        attendanceId: record._id,
+        userId: req.user._id,
+        userName: req.user.name,
+        lateMinutes: record.lateMinutes,
+        lateReason: record.lateReason,
+      },
+    });
+  }
+
   return res.json({
     message: resolvedAction === 'in'
       ? (record.isLatePenalty ? 'Punched in (3rd Late Check-in: Half Day penalty cut applied)' : record.isLateCheckIn ? 'Punched in (Late Check-in)' : 'Punch in recorded')
@@ -481,6 +521,32 @@ const getShiftStatus = asyncHandler(async (req, res) => {
   const totalHours = record ? (record.totalHours || (logoutTime && loginTime ? Math.max(0, (new Date(logoutTime).getTime() - new Date(loginTime).getTime()) / 3600000) : 0)) : 0;
   const isEarlyCheckout = Boolean(isShiftCompleted && (totalHours < 7 || record?.status === 'Half Day'));
 
+  const graceMinutes = Number(shiftDetails.shift?.gracePeriod ?? 15);
+  let isLatePending = false;
+  let pendingLateMinutes = 0;
+  let projectedLateCount = 0;
+
+  if (!loginTime && !isShiftCompleted && shiftDetails.shiftStart) {
+    const lateThreshold = new Date(shiftDetails.shiftStart.getTime() + graceMinutes * 60 * 1000);
+    if (now > lateThreshold) {
+      isLatePending = true;
+      pendingLateMinutes = Math.max(0, Math.round((now.getTime() - shiftDetails.shiftStart.getTime()) / 60000));
+
+      const istLogical = getISTComponents(shiftDetails.logicalDate);
+      const startOfMonth = createFromIST(istLogical.year, istLogical.month, 1, 0, 0, 0, 0);
+      const previousLates = await Attendance.countDocuments({
+        user: req.user._id,
+        date: { $gte: startOfMonth, $lt: shiftDetails.logicalDate },
+        $or: [
+          { isLateCheckIn: true },
+          { status: 'Late' },
+          { isLatePenalty: true },
+        ],
+      });
+      projectedLateCount = previousLates + 1;
+    }
+  }
+
   return res.json({
     hasRecord: Boolean(record),
     isPunchedIn,
@@ -490,6 +556,7 @@ const getShiftStatus = asyncHandler(async (req, res) => {
     grossHours: record?.grossHours || totalHours,
     status: record?.status || null,
     isLateCheckIn: Boolean(record?.isLateCheckIn),
+    lateReason: record?.lateReason || null,
     isLatePenalty: Boolean(record?.isLatePenalty),
     penaltyDeductionHours: record?.penaltyDeductionHours || 0,
     lateCountInMonth: record?.lateCountInMonth || 0,
@@ -507,6 +574,10 @@ const getShiftStatus = asyncHandler(async (req, res) => {
     secondsRemaining,
     shiftName: shiftDetails.shift?.shiftName || 'Standard Shift',
     isNightShift: shiftDetails.isNight,
+    graceMinutes,
+    isLatePending,
+    pendingLateMinutes,
+    projectedLateCount,
   });
 });
 
@@ -547,10 +618,19 @@ const updateAttendanceRecord = asyncHandler(async (req, res) => {
   validators.objectId(req.params.id, 'attendance id');
   const record = await Attendance.findById(req.params.id);
   if (!record) throw new AppError('Attendance record not found', 404, 'ATTENDANCE_NOT_FOUND');
-  if (req.body.status !== undefined) record.status = validators.enumValue(req.body.status, ['Present', 'Absent', 'Late', 'Half Day'], 'status');
+
+  const previousStatus = record.status || 'None';
+
+  if (req.body.status !== undefined) {
+    record.status = validators.enumValue(req.body.status, ['Present', 'Absent', 'Late', 'Half Day'], 'status');
+    record.isManualOverride = true;
+  }
   if (req.body.isLateCheckIn !== undefined) record.isLateCheckIn = Boolean(req.body.isLateCheckIn);
   if (req.body.isLatePenalty !== undefined) record.isLatePenalty = Boolean(req.body.isLatePenalty);
   if (req.body.penaltyDeductionHours !== undefined) record.penaltyDeductionHours = Number(req.body.penaltyDeductionHours);
+  if (req.body.reason !== undefined) record.manualOverrideReason = String(req.body.reason).trim();
+  record.updatedBy = req.user._id;
+
   if (req.body.loginTime !== undefined) {
     const loginTime = req.body.loginTime ? new Date(req.body.loginTime) : null;
     validators.ensure(!loginTime || !Number.isNaN(loginTime.getTime()), 'Valid loginTime is required', 'loginTime');
@@ -561,12 +641,154 @@ const updateAttendanceRecord = asyncHandler(async (req, res) => {
     validators.ensure(!logoutTime || !Number.isNaN(logoutTime.getTime()), 'Valid logoutTime is required', 'logoutTime');
     record.logoutTime = logoutTime;
   }
-  if (record.loginTime && record.logoutTime && record.logoutTime < record.loginTime) throw new AppError('Logout time must be after login time', 400, 'INVALID_TIME_RANGE');
+  if (record.status === 'Absent' && !req.body.loginTime && !req.body.logoutTime) {
+    record.loginTime = null;
+    record.logoutTime = null;
+    record.totalHours = 0;
+    record.grossHours = 0;
+  }
+  if (record.loginTime && record.logoutTime && record.logoutTime < record.loginTime) {
+    throw new AppError('Logout time must be after login time', 400, 'INVALID_TIME_RANGE');
+  }
   await record.save();
-  await writeAuditLog(req, 'attendance.updated', 'Attendance', record._id, { status: record.status });
+
+  const targetUser = await User.findById(record.user).select('name employeeId email department').lean();
+  const dateStr = record.date ? new Date(record.date).toISOString().slice(0, 10) : '';
+  const reasonText = record.manualOverrideReason || (req.body.reason ? String(req.body.reason).trim() : 'Manual update by admin');
+  const changeSummary = `${req.user.name || 'Admin'} updated attendance for ${targetUser?.name || 'Staff'} (${targetUser?.employeeId || '—'}) on ${dateStr}: Status changed from "${previousStatus}" to "${record.status}"${req.body.reason ? ` — Note: ${reasonText}` : ''}`;
+
+  await writeAuditLog(
+    req,
+    'attendance.manual_update',
+    'Attendance',
+    record._id,
+    {
+      targetUserId: record.user,
+      targetUserName: targetUser?.name || 'Staff',
+      targetUserEmail: targetUser?.email || '',
+      targetUserEmployeeId: targetUser?.employeeId || '',
+      date: dateStr,
+      previousStatus,
+      newStatus: record.status,
+      loginTime: record.loginTime,
+      logoutTime: record.logoutTime,
+      totalHours: record.totalHours,
+      reason: reasonText,
+      summary: changeSummary,
+    },
+    {
+      actorName: req.user.name,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      targetUserName: targetUser?.name || 'Staff',
+      targetUserEmployeeId: targetUser?.employeeId || '',
+      summary: changeSummary,
+    }
+  );
+
   const recordObj = record.toObject();
   const populated = await populateActiveHours([recordObj]);
-  res.json(populated[0]);
+  res.json({
+    ...populated[0],
+    summary: changeSummary,
+  });
+});
+
+const manualUpdateAttendance = asyncHandler(async (req, res) => {
+  const { userId, date, status, loginTime, logoutTime, reason } = req.body;
+  validators.ensure(userId, 'Employee userId is required', 'userId');
+  validators.ensure(date, 'Date is required', 'date');
+
+  let targetUser = null;
+  if (mongoose.isValidObjectId(userId)) {
+    targetUser = await User.findById(userId);
+  }
+  if (!targetUser) {
+    targetUser = await User.findOne({ employeeId: userId, deletedAt: null });
+  }
+  if (!targetUser) throw new AppError('Employee not found', 404, 'USER_NOT_FOUND');
+
+  const parsedDate = new Date(date);
+  validators.ensure(!Number.isNaN(parsedDate.getTime()), 'Valid date is required', 'date');
+  const logicalDate = startOfLogicalShiftDay(parsedDate);
+
+  const validStatus = validators.enumValue(status, ['Present', 'Absent', 'Late', 'Half Day'], 'status');
+
+  let record = await Attendance.findOne({ user: targetUser._id, date: logicalDate });
+  const isNew = !record;
+  const previousStatus = record ? record.status : 'None (No Record)';
+
+  if (!record) {
+    record = new Attendance({
+      user: targetUser._id,
+      date: logicalDate,
+    });
+  }
+
+  record.status = validStatus;
+  record.isManualOverride = true;
+  record.manualOverrideReason = reason ? String(reason).trim() : 'Manual attendance update by admin';
+  record.updatedBy = req.user._id;
+
+  if (loginTime !== undefined) {
+    record.loginTime = loginTime ? new Date(loginTime) : null;
+  }
+  if (logoutTime !== undefined) {
+    record.logoutTime = logoutTime ? new Date(logoutTime) : null;
+  }
+
+  if (validStatus === 'Absent' && !loginTime && !logoutTime) {
+    record.loginTime = null;
+    record.logoutTime = null;
+    record.totalHours = 0;
+    record.grossHours = 0;
+  }
+
+  if (record.loginTime && record.logoutTime && record.logoutTime < record.loginTime) {
+    throw new AppError('Logout time must be after login time', 400, 'INVALID_TIME_RANGE');
+  }
+
+  await record.save();
+
+  const dateStr = logicalDate.toISOString().slice(0, 10);
+  const reasonText = record.manualOverrideReason;
+  const changeSummary = `${req.user.name || 'Admin'} updated attendance for ${targetUser.name} (${targetUser.employeeId || 'Staff'}) on ${dateStr}: Status set from "${previousStatus}" to "${record.status}"${reason ? ` — Note: ${reasonText}` : ''}`;
+
+  await writeAuditLog(
+    req,
+    'attendance.manual_update',
+    'Attendance',
+    record._id,
+    {
+      targetUserId: targetUser._id,
+      targetUserName: targetUser.name,
+      targetUserEmail: targetUser.email,
+      targetUserEmployeeId: targetUser.employeeId,
+      date: dateStr,
+      previousStatus,
+      newStatus: record.status,
+      loginTime: record.loginTime,
+      logoutTime: record.logoutTime,
+      totalHours: record.totalHours,
+      reason: reasonText,
+      summary: changeSummary,
+    },
+    {
+      actorName: req.user.name,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      targetUserName: targetUser.name,
+      targetUserEmployeeId: targetUser.employeeId,
+      summary: changeSummary,
+      actionType: isNew ? 'CREATE_OVERRIDE' : 'UPDATE_OVERRIDE',
+    }
+  );
+
+  const populated = await populateActiveHours([record.toObject()]);
+  res.json({
+    ...populated[0],
+    summary: changeSummary,
+  });
 });
 
 const getUserAttendance = asyncHandler(async (req, res) => {
@@ -591,6 +813,7 @@ module.exports = {
   getUserAttendance,
   getMyAttendance,
   updateAttendanceRecord,
+  manualUpdateAttendance,
   autoResolveMissingPunches,
   getShiftStatus,
   extendShift,

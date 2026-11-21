@@ -4,6 +4,7 @@ const AppError = require('../utils/AppError');
 const validators = require('../validation/validators');
 const { subscribe } = require('../services/realtimeService');
 const { dispatchNotifications } = require('../services/notificationService');
+const { checkTrainingDay8Milestones, checkProbation3MonthMilestones } = require('../services/trainingMilestoneService');
 const User = require('../models/User');
 
 const streamNotifications = asyncHandler(async (req, res) => {
@@ -46,9 +47,19 @@ const streamNotifications = asyncHandler(async (req, res) => {
     const names = users.filter((user) => { const dob = new Date(user.dob); return dob.getMonth() === now.getMonth() && dob.getDate() === now.getDate(); }).map((user) => user.name);
     if (names.length) await dispatchNotifications({ recipients: req.user._id, title: 'Employee birthdays today', message: names.join(', '), type: 'info', link: '/birthdays', metadata: { category: 'birthday', day: dayKey } });
   }
+
+  // Check 8-day training milestones and 3-month probation milestones
+  await checkTrainingDay8Milestones();
+  await checkProbation3MonthMilestones();
 });
 
 const getMyNotifications = asyncHandler(async (req, res) => {
+  // If recipient is HR or Admin, ensure any training & probation milestones are triggered
+  if (['admin', 'super admin', 'hr'].includes(req.user?.role?.toLowerCase())) {
+    await checkTrainingDay8Milestones();
+    await checkProbation3MonthMilestones();
+  }
+
   const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
   const query = { recipient: req.user._id };
   if (req.query.unreadOnly === 'true') query.readAt = null;

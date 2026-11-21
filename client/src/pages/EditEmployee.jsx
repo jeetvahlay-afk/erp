@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Banknote,
+  Camera,
   GraduationCap,
+  ImagePlus,
   Plus,
   Save,
   Trash2,
+  Upload,
   User,
   Users,
   Briefcase,
@@ -75,6 +78,8 @@ const EditEmployee = () => {
   const [roles, setRoles] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [preview, setPreview] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [state, setState] = useState({ loading: true, saving: false, error: '' });
 
   const load = async () => {
@@ -124,6 +129,12 @@ const EditEmployee = () => {
       setRoles(asArray(roleResponse.data));
       setDepartments(asArray(departmentResponse.data));
       setShifts(asArray(shiftResponse.data));
+      const avatarUrl = employee.profileImage
+        ? (/^(https?:|data:|blob:|\/)/.test(employee.profileImage)
+            ? employee.profileImage
+            : `/uploads/avatars/${employee.profileImage}`)
+        : '';
+      setPreview(avatarUrl);
       setState({ loading: false, saving: false, error: '' });
     } catch (error) {
       setState({
@@ -222,6 +233,46 @@ const EditEmployee = () => {
     }));
   };
 
+  const chooseImage = async (file) => {
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      feedback.error('Profile image must be below 4 MB.');
+      return;
+    }
+    const localUrl = URL.createObjectURL(file);
+    setPreview(localUrl);
+
+    const payload = new FormData();
+    payload.append('profileImage', file);
+    setUploadingAvatar(true);
+    try {
+      const res = await api.post(`/api/users/${id}/avatar`, payload);
+      feedback.success('Profile photo updated successfully.');
+      if (res.data?.profileImage) {
+        setPreview(`/uploads/avatars/${res.data.profileImage}?t=${Date.now()}`);
+        setForm((cur) => ({ ...cur, profileImage: res.data.profileImage }));
+      }
+    } catch (err) {
+      feedback.error(getApiError(err, 'Failed to update profile photo'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeImage = async () => {
+    setUploadingAvatar(true);
+    try {
+      await api.delete(`/api/users/${id}/avatar`);
+      setPreview('');
+      setForm((cur) => ({ ...cur, profileImage: '' }));
+      feedback.success('Profile photo removed.');
+    } catch (err) {
+      feedback.error(getApiError(err, 'Failed to remove profile photo'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const submit = async () => {
     if (!form.firstName.trim() || !form.lastName.trim() || !form.email.trim()) {
       feedback.error('First name, last name, and email are required.');
@@ -306,6 +357,67 @@ const EditEmployee = () => {
         {/* TAB 1: BASIC INFORMATION */}
         {tab === 'basic' && (
           <div className="space-y-8">
+            {/* Profile Image Section */}
+            <div>
+              <div className="mb-4 pb-2 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Profile Image</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Photo displayed on employee profile card, directory, and system badges.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80">
+                <div className="w-16 h-16 rounded-full border-2 border-dashed border-slate-300 bg-slate-100 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs relative">
+                  {preview ? (
+                    <img
+                      src={preview}
+                      alt={form.firstName || 'Preview'}
+                      className="w-full h-full object-cover"
+                      onError={() => setPreview('')}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-600 via-indigo-600 to-rose-500 text-white font-bold text-base">
+                      {((form.firstName?.[0] || '') + (form.lastName?.[0] || '')).toUpperCase() || <ImagePlus size={22} className="text-white/80" />}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <strong className="block text-xs font-bold text-slate-800">
+                    {preview ? 'Change employee photo' : 'Upload employee photo'}
+                  </strong>
+                  <span className="block text-[11px] text-slate-400">
+                    JPEG, PNG, or WebP up to 4 MB
+                  </span>
+                  <div className="flex items-center gap-2 pt-1">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors cursor-pointer shadow-2xs">
+                      <Upload size={13} />
+                      <span>{uploadingAvatar ? 'Uploading…' : preview ? 'Change Photo' : 'Choose File'}</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        hidden
+                        disabled={uploadingAvatar}
+                        onChange={(e) => chooseImage(e.target.files?.[0])}
+                      />
+                    </label>
+                    {preview && (
+                      <button
+                        type="button"
+                        disabled={uploadingAvatar}
+                        onClick={removeImage}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Personal Information Section */}
             <div>
               <div className="mb-4 pb-2 border-b border-slate-100 flex items-center justify-between">

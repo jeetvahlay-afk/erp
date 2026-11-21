@@ -3,6 +3,8 @@ const path = require('path');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Role = require('../models/Role');
+const RecruitmentManagement = require('../models/RecruitmentManagement');
+const { dispatchNotifications } = require('../services/notificationService');
 const env = require('../config/env');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
@@ -15,7 +17,7 @@ const ADMIN_UPDATABLE_FIELDS = [
   'email', 'username', 'emergencyName', 'emergencyPhone', 'currentAddress', 'permanentAddress',
   'dob', 'gender', 'bloodGroup', 'role', 'firstName', 'lastName', 'name', 'allowedRoutes', 'phone',
   'baseSalary', 'shift', 'department', 'documents', 'employeeId', 'permissions', 'designation',
-  'joiningDate', 'employmentType', 'company', 'profileImage', 'bio', 'reportingManager',
+  'joiningDate', 'employmentType', 'probationStartDate', 'probationDurationMonths', 'probationStatus', 'officialConversionDate', 'probationCandidateId', 'company', 'profileImage', 'bio', 'reportingManager',
   'bankInformation', 'familyInformation', 'education', 'experience', 'separationType', 'exitDate',
   'exitReason', 'isActive', 'reactivationDate', 'reactivationReason', 'statusHistory',
 ];
@@ -94,6 +96,49 @@ const uploadProfileAvatar = asyncHandler(async (req, res) => {
   validators.ensure(req.file?.filename, 'Profile image is required', 'profileImage');
   const user = await User.findByIdAndUpdate(req.user._id, { $set: { profileImage: req.file.filename } }, { returnDocument: 'after' });
   res.json({ message: 'Profile photo updated', profileImage: user.profileImage });
+});
+
+const updateUserAvatarById = asyncHandler(async (req, res) => {
+  validators.objectId(req.params.id, 'user id');
+  validators.ensure(req.file?.filename, 'Profile image is required', 'profileImage');
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser || targetUser.deletedAt) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+  if (targetUser.role === 'super admin' && req.user.role !== 'super admin') {
+    throw new AppError('Only a super admin can modify another super admin', 403, 'FORBIDDEN');
+  }
+
+  if (targetUser.profileImage) {
+    try {
+      const oldPath = path.resolve(__dirname, '../../uploads/avatars', path.basename(targetUser.profileImage));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    } catch (_) {}
+  }
+
+  targetUser.profileImage = req.file.filename;
+  await targetUser.save({ validateBeforeSave: false });
+  await writeAuditLog(req, 'user.avatar_updated', 'User', targetUser._id);
+  res.json({ message: 'Profile photo updated successfully', profileImage: targetUser.profileImage });
+});
+
+const deleteUserAvatarById = asyncHandler(async (req, res) => {
+  validators.objectId(req.params.id, 'user id');
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser || targetUser.deletedAt) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+  if (targetUser.role === 'super admin' && req.user.role !== 'super admin') {
+    throw new AppError('Only a super admin can modify another super admin', 403, 'FORBIDDEN');
+  }
+
+  if (targetUser.profileImage) {
+    try {
+      const oldPath = path.resolve(__dirname, '../../uploads/avatars', path.basename(targetUser.profileImage));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    } catch (_) {}
+  }
+
+  targetUser.profileImage = '';
+  await targetUser.save({ validateBeforeSave: false });
+  await writeAuditLog(req, 'user.avatar_removed', 'User', targetUser._id);
+  res.json({ message: 'Profile photo removed successfully', profileImage: '' });
 });
 
 const uploadMyDocument = asyncHandler(async (req, res) => {
@@ -375,8 +420,100 @@ const bulkUpdateShift = asyncHandler(async (req, res) => {
   res.json({ message: 'Shift assignments updated successfully', updatedCount: employeeIds.length });
 });
 
+const decideEmployeeProbation = asyncHandler(async (req, res) => {
+  validators.objectId(req.params.id, 'user id');
+  const targetUser = await User.findById(req.params.id);
+  if (!targetUser || targetUser.deletedAt) throw new AppError('Employee not found', 404, 'USER_NOT_FOUND');
+
+  const userRole = String(req.user.role || '').toLowerCase();
+  const isPrivileged = ['admin', 'super admin', 'hr'].includes(userRole);
+  const isManager = targetUser.reportingManager && targetUser.reportingManager.equals(req.user._id);
+  if (!isPrivileged && !isManager) {
+    throw new AppError('Only an admin, HR, or reporting manager can decide probation status', 403, 'FORBIDDEN');
+  }
+
+  const { decision, durationMonths, reason } = req.body;
+  validators.ensure(['official', 'extend', 'terminate'].includes(decision), 'Valid decision (official, extend, terminate) is required', 'decision');
+
+  let message = '';
+  const now = new Date();
+
+  if (decision === 'official') {
+    targetUser.employmentType = 'Full Time';
+    targetUser.probationStatus = 'Completed';
+    targetUser.officialConversionDate = now;
+    message = `${targetUser.name} has been successfully converted into an official Full Time employee.`;
+
+    if (targetUser.probationCandidateId) {
+      await RecruitmentManagement.findByIdAndUpdate(targetUser.probationCandidateId, {
+        $set: {
+          status: 'Joined',
+          stage: 'Joined Candidates',
+          trainingStatus: 'Completed',
+          probation3MonthDecision: 'Official',
+          candidateJoinedOn: now,
+        },
+      });
+    }
+
+    try {
+      await dispatchNotifications({
+        recipients: targetUser._id,
+        title: 'Congratulations on Official Appointment!',
+        message: 'You have successfully completed your probation and are now an official Full Time team member!',
+        type: 'info',
+        link: `/employee/${targetUser._id}`,
+        metadata: { category: 'official_conversion', officialDate: now },
+      });
+    } catch (_) {}
+  } else if (decision === 'extend') {
+    const extraMonths = Math.min(Math.max(Number(durationMonths) || 1, 1), 6);
+    targetUser.probationDurationMonths = (targetUser.probationDurationMonths || 3) + extraMonths;
+    targetUser.probationStatus = 'Extended';
+    targetUser.probation3MonthNotified = false;
+    message = `${targetUser.name}'s probation has been extended by ${extraMonths} month(s).`;
+
+    if (targetUser.probationCandidateId) {
+      await RecruitmentManagement.findByIdAndUpdate(targetUser.probationCandidateId, {
+        $set: {
+          probation3MonthDecision: 'Extended',
+          probation3MonthNotified: false,
+        },
+      });
+    }
+  } else if (decision === 'terminate') {
+    targetUser.employmentType = 'Contract Ended';
+    targetUser.probationStatus = 'Terminated';
+    targetUser.separationType = 'Probation Ineligible';
+    targetUser.exitDate = now;
+    targetUser.exitReason = reason || 'Probation criteria not met';
+    message = `${targetUser.name}'s probation was ended.`;
+
+    if (targetUser.probationCandidateId) {
+      await RecruitmentManagement.findByIdAndUpdate(targetUser.probationCandidateId, {
+        $set: {
+          status: 'Ineligible',
+          trainingStatus: 'Ineligible',
+          probation3MonthDecision: 'Terminated',
+        },
+      });
+    }
+  }
+
+  await targetUser.save({ validateBeforeSave: false });
+  await writeAuditLog(req, 'employee.probation_decision', 'User', targetUser._id, {
+    decision,
+    reason: reason || '',
+    durationMonths: durationMonths || 0,
+    employeeName: targetUser.name,
+  });
+
+  res.json({ message, user: targetUser.toJSON() });
+});
+
 module.exports = {
   getUsers, deleteUser, updateUserStatus, updateUser, getUserProfile, updateUserProfile,
-  getUserById, getUserAvatar, uploadProfileAvatar, uploadMyDocument, bulkUpdateShift,
+  getUserById, getUserAvatar, uploadProfileAvatar, updateUserAvatarById, deleteUserAvatarById, uploadMyDocument, bulkUpdateShift,
   getMyPreferences, updateMyPreferences, uploadUserDocument, downloadUserDocument, deleteUserDocument,
+  decideEmployeeProbation,
 };

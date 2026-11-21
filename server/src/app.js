@@ -35,6 +35,7 @@ const workspaceRoutes = require('./routes/workspaceRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const workReportRoutes = require('./routes/workReportRoutes');
+const assessmentRoutes = require('./routes/assessmentRoutes');
 
 const app = express();
 if (env.trustProxy) app.set('trust proxy', 1);
@@ -88,9 +89,9 @@ app.use('/api/auth/verify', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 
-app.use('/uploads/chat', express.static(path.resolve(__dirname, '../../uploads/chat')));
-app.use('/uploads/avatars', express.static(path.resolve(__dirname, '../../uploads/avatars')));
-app.use('/uploads/documents', express.static(path.resolve(__dirname, '../../uploads/documents')));
+app.use('/uploads/chat', express.static(path.resolve(__dirname, '../uploads/chat')));
+app.use('/uploads/avatars', express.static(path.resolve(__dirname, '../uploads/avatars')));
+app.use('/uploads/documents', express.static(path.resolve(__dirname, '../uploads/documents')));
 app.get('/', (_req, res) => res.json({ name: 'TeamHub ERP API', version: '3.0.0' }));
 app.get('/api/health', (_req, res) => {
   const databaseStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
@@ -125,6 +126,7 @@ app.use('/api/workspace', workspaceRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/work-reports', workReportRoutes);
+app.use('/api/assessment', assessmentRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

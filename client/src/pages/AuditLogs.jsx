@@ -139,8 +139,8 @@ const AuditLogs = () => {
                 <th className="py-2.5 pl-4 sm:pl-5 pr-2.5">TIMESTAMP</th>
                 <th className="py-2.5 px-2.5">ACTOR</th>
                 <th className="py-2.5 px-2.5">ACTION EVENT</th>
-                <th className="py-2.5 px-2.5">TARGET ENTITY</th>
-                <th className="py-2.5 px-2.5">ENTITY ID</th>
+                <th className="py-2.5 px-2.5">TARGET</th>
+                <th className="py-2.5 px-2.5">DETAILS & LOGGED CHANGES</th>
                 <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">REQUEST ID</th>
               </tr>
             </thead>
@@ -166,13 +166,43 @@ const AuditLogs = () => {
                       {item.action || 'system.event'}
                     </StatusBadge>
                   </td>
-                  <td className="py-2.5 px-2.5 font-semibold text-slate-700">
-                    {item.entity || 'User'}
-                  </td>
                   <td className="py-2.5 px-2.5">
-                    <span className="px-2 py-0.5 rounded-md bg-slate-100 font-mono text-[11px] text-slate-600 select-all">
-                      {String(item.entityId || '—').slice(0, 16)}
+                    <span className="font-semibold text-slate-800 block">
+                      {item.entityType || item.entity || 'Entity'}
                     </span>
+                    {item.changes?.targetUserName && (
+                      <span className="text-[11px] text-slate-500 block truncate max-w-[130px]">
+                        {item.changes.targetUserName}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-2.5 max-w-[340px]">
+                    {item.changes?.summary ? (
+                      <div className="space-y-0.5">
+                        <span className="font-semibold text-slate-900 block text-xs leading-snug">
+                          {item.changes.summary}
+                        </span>
+                        {item.changes.reason && (
+                          <span className="text-[11px] text-slate-500 block">
+                            Note: {item.changes.reason}
+                          </span>
+                        )}
+                      </div>
+                    ) : item.metadata?.summary ? (
+                      <span className="text-slate-800 text-xs font-medium block">
+                        {item.metadata.summary}
+                      </span>
+                    ) : item.changes?.status ? (
+                      <span className="text-slate-700 text-xs">
+                        Status: <strong className="text-slate-900">{item.changes.status}</strong>
+                      </span>
+                    ) : item.changes ? (
+                      <span className="text-slate-600 text-[11px] block truncate max-w-[280px]" title={JSON.stringify(item.changes)}>
+                        {JSON.stringify(item.changes)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-mono text-[11px]">—</span>
+                    )}
                   </td>
                   <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
                     <span className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200/60 font-mono text-[10px] text-slate-500 select-all">

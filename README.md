@@ -29,7 +29,7 @@ Before deploying this refactor, rotate the MongoDB credentials, JWT secret, and 
 ```bash
 cd server
 cp .env.example .env
-npm ci
+npm ci  
 npm run seed
 npm run dev
 ```

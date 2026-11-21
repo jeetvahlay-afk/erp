@@ -8,6 +8,7 @@ import {
   Calendar,
   CalendarCheck,
   CalendarDays,
+  Camera,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -68,6 +69,13 @@ const calculateShiftDuration = (shift) => {
 };
 
 const getStatusBadge = (emp) => {
+  if (emp?.employmentType === 'Probation' || emp?.probationStatus === 'In Probation') {
+    return {
+      label: 'In Probation',
+      bg: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200/60 dark:border-amber-800',
+      dot: 'bg-amber-500',
+    };
+  }
   if (emp?.isActive) {
     return {
       label: 'Active',
@@ -145,6 +153,56 @@ const EmployeeDetails = () => {
     reason: '',
   });
   const [reactivating, setReactivating] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [probationDeciding, setProbationDeciding] = useState(false);
+  const avatarInputRef = useRef(null);
+
+  const handleProbationDecision = async (decision, durationMonths = 1, reason = '') => {
+    setProbationDeciding(true);
+    try {
+      const res = await api.post(`/api/users/${employee._id}/probation-decision`, {
+        decision,
+        durationMonths,
+        reason,
+      });
+      feedback.success(res.data?.message || 'Decision recorded successfully');
+      setEmployee(res.data?.user || {
+        ...employee,
+        employmentType: decision === 'official' ? 'Full Time' : employee.employmentType,
+        probationStatus: decision === 'official' ? 'Completed' : 'Extended',
+      });
+      load();
+    } catch (err) {
+      feedback.error(getApiError(err, 'Failed to process probation decision'));
+    } finally {
+      setProbationDeciding(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      feedback.error('Profile photo must be under 4 MB');
+      return;
+    }
+    const fd = new FormData();
+    fd.append('profileImage', file);
+    setUploadingAvatar(true);
+    try {
+      const res = await api.post(`/api/users/${employee._id}/avatar`, fd);
+      feedback.success('Profile photo updated successfully');
+      setEmployee((prev) => ({
+        ...prev,
+        profileImage: `${res.data.profileImage}?t=${Date.now()}`,
+      }));
+    } catch (err) {
+      feedback.error(getApiError(err, 'Failed to update profile photo'));
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -325,6 +383,12 @@ const EmployeeDetails = () => {
     { id: 'documents', label: 'Documents', icon: FileText },
   ];
 
+  const isProbation = employee?.employmentType === 'Probation' || employee?.probationStatus === 'In Probation';
+  const probationStart = employee?.probationStartDate || employee?.joiningDate;
+  const daysInProbation = probationStart
+    ? Math.max(0, Math.floor((Date.now() - new Date(probationStart).getTime()) / (24 * 60 * 60 * 1000)))
+    : 0;
+
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 space-y-4 sm:space-y-4.5 w-full max-w-[1920px] mx-auto text-slate-800 dark:text-slate-100 pb-10">
       {/* Page Header */}
@@ -387,6 +451,44 @@ const EmployeeDetails = () => {
         }
       />
 
+      {/* 3-Month Probation Milestone Decision Prompt Banner */}
+      {isProbation && daysInProbation >= 90 && (
+        <div className="mb-4 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border-2 border-amber-400 dark:border-amber-600 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white uppercase tracking-wider">
+                Probation Milestone: 3 Months Completed
+              </span>
+              <span className="text-xs text-amber-700 dark:text-amber-300 font-semibold">
+                {daysInProbation} Days in Probation
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+              this <span className="text-amber-600 dark:text-amber-400 font-bold">{employee.name}</span> candidate completed 3 months of the probation period do you want to convert him/her into the official employee or not
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={probationDeciding}
+              onClick={() => handleProbationDecision('official')}
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
+            >
+              <CheckCircle2 size={14} />
+              <span>{probationDeciding ? 'Saving…' : 'Convert to Official Employee'}</span>
+            </button>
+            <button
+              type="button"
+              disabled={probationDeciding}
+              onClick={() => handleProbationDecision('extend')}
+              className="px-3.5 py-2.5 rounded-xl border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-800 dark:text-amber-200 text-xs font-semibold transition cursor-pointer"
+            >
+              Extend Probation
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main 2-Column Responsive Layout: Left Profile Column (4 cols) + Right Workspace (8 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-4.5 items-start">
         {/* ================= LEFT COLUMN: Profile + Key Info Cards ================= */}
@@ -404,16 +506,56 @@ const EmployeeDetails = () => {
 
             {/* Profile Avatar & Info */}
             <div className="px-4 sm:px-5 pt-0 pb-4 text-center relative -mt-10">
-              <div className="inline-flex w-20 h-20 rounded-full bg-slate-900 ring-4 ring-white text-white font-bold text-xl items-center justify-center shadow-sm overflow-hidden">
-                {employee?.profileImage ? (
-                  <img
-                    src={employee.profileImage}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  initials
-                )}
+              <div className="relative inline-flex group">
+                <div className="w-20 h-20 rounded-full bg-slate-100 dark:bg-slate-800 ring-4 ring-white dark:ring-slate-900 text-white font-bold text-xl flex items-center justify-center shadow-sm overflow-hidden">
+                  {employee?.profileImage ? (
+                    <img
+                      key={employee.profileImage}
+                      src={
+                        /^(https?:|data:|blob:|\/)/.test(employee.profileImage)
+                          ? employee.profileImage
+                          : `/uploads/avatars/${employee.profileImage}`
+                      }
+                      alt={employee.name || ''}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        if (!e.currentTarget.dataset.retried) {
+                          e.currentTarget.dataset.retried = 'true';
+                          e.currentTarget.src = `/api/users/${employee._id}/avatar`;
+                          return;
+                        }
+                        e.currentTarget.style.display = 'none';
+                        const fallback = e.currentTarget.parentElement?.querySelector('.avatar-fallback');
+                        if (fallback) {
+                          fallback.classList.remove('hidden');
+                          fallback.style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <span className={`avatar-fallback w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-600 via-indigo-600 to-rose-500 text-white font-bold text-xl ${employee?.profileImage ? 'hidden' : 'flex'}`}>
+                    {initials}
+                  </span>
+                </div>
+
+                {/* Quick Avatar Change Overlay Button */}
+                <button
+                  type="button"
+                  title="Change profile photo"
+                  disabled={uploadingAvatar}
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity rounded-full cursor-pointer text-[10px] font-semibold"
+                >
+                  <Camera size={18} className="mb-0.5" />
+                  <span>{uploadingAvatar ? '...' : 'Edit'}</span>
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                  onChange={handleAvatarUpload}
+                />
               </div>
 
               <h2 className="text-lg font-bold text-slate-900 mt-3 leading-snug truncate">
@@ -442,6 +584,26 @@ const EmployeeDetails = () => {
                     {employee.exitDate ? ` · Exited ${formatDate(employee.exitDate)}` : ''}
                     {employee.exitReason ? ` (${employee.exitReason})` : ''}
                   </p>
+                )}
+
+                {isProbation && (
+                  <div className="mt-3.5 p-3 rounded-xl bg-amber-500/10 border border-amber-300/80 dark:border-amber-700/60 text-left">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
+                      <span>Probation Progress</span>
+                      <span>{daysInProbation} / 90 Days</span>
+                    </div>
+                    <div className="w-full bg-amber-200 dark:bg-amber-950 rounded-full h-1.5 mt-2 overflow-hidden">
+                      <div
+                        className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(100, Math.round((daysInProbation / 90) * 100))}%` }}
+                      />
+                    </div>
+                    <span className="block text-[11px] text-amber-700 dark:text-amber-400 mt-1.5">
+                      {daysInProbation >= 90
+                        ? '3 months completed! Ready for official employee conversion.'
+                        : `${Math.max(0, 90 - daysInProbation)} days remaining in 3-month probation.`}
+                    </span>
+                  </div>
                 )}
               </div>
 

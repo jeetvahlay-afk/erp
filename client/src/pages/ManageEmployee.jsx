@@ -65,7 +65,9 @@ const ManageEmployee = () => {
               year: 'numeric',
             })
           : '—',
+        employmentType: u.employmentType || 'Full Time',
         status: (() => {
+          if (u.employmentType === 'Probation' || u.probationStatus === 'In Probation') return 'Probation';
           if (u.isActive !== false) return 'Active';
           const sep = (u.separationType || u.exitReason || 'Inactive').trim();
           const lower = sep.toLowerCase();
@@ -207,9 +209,6 @@ const ManageEmployee = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
             Employees
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 font-normal">
-            Manage all employees, their details, roles and employment status.
-          </p>
         </div>
 
         {/* Right Action Buttons */}
@@ -449,17 +448,24 @@ const ManageEmployee = () => {
                     {/* Employee Avatar + Name + Email */}
                     <td className="py-2.5 px-2.5">
                       <div className="flex items-center gap-3">
-                        {emp.avatar ? (
-                          <img
-                            src={emp.avatar}
-                            alt={emp.name}
-                            className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center ring-1 ring-slate-200 shrink-0">
+                        <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 ring-1 ring-slate-200 bg-slate-100 flex items-center justify-center">
+                          {emp.avatar ? (
+                            <img
+                              src={emp.avatar}
+                              alt={emp.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                if (e.currentTarget.nextElementSibling) {
+                                  e.currentTarget.nextElementSibling.style.display = 'flex';
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <span className={`w-full h-full flex items-center justify-center bg-slate-100 text-slate-600 font-bold text-xs ${emp.avatar ? 'hidden' : 'flex'}`}>
                             {emp.name?.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
+                          </span>
+                        </div>
                         <div className="min-w-0">
                           <button
                             type="button"
@@ -495,6 +501,12 @@ const ManageEmployee = () => {
 
                     {/* Status Pill Chip */}
                     <td className="py-2.5 px-2.5">
+                      {emp.status === 'Probation' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/60">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          In Probation
+                        </span>
+                      )}
                       {emp.status === 'Active' && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-[#ecfdf5] text-[#059669]">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />

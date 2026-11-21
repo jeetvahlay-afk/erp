@@ -136,9 +136,6 @@ const EmployeeDashboard = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
             Hello, {employee?.name || 'Super Admin'} 👋
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 font-normal">
-            Welcome to your employee dashboard. Here is your daily summary and schedule.
-          </p>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">

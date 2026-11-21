@@ -5,6 +5,7 @@ const dispatch = (detail) => window.dispatchEvent(new CustomEvent(EVENT_NAME, { 
 export const feedback = {
   success: (message) => dispatch({ type: 'toast', tone: 'success', message }),
   error: (message) => dispatch({ type: 'toast', tone: 'error', message }),
+  warning: (message) => dispatch({ type: 'toast', tone: 'warning', message }),
   info: (message) => dispatch({ type: 'toast', tone: 'info', message }),
   notification: (notification, onClick) => dispatch({ ...notification, type: 'notification', onClick }),
   confirm: (message, options = {}) => new Promise((resolve) => {

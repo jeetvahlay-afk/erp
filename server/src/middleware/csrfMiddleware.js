@@ -12,7 +12,13 @@ const safeEqual = (left, right) => {
 };
 
 const csrfProtection = (req, _res, next) => {
-  if (SAFE_METHODS.has(req.method) || req.path === '/api/auth/login') return next();
+  if (
+    SAFE_METHODS.has(req.method) ||
+    req.path === '/api/auth/login' ||
+    req.path.startsWith('/api/assessment')
+  ) {
+    return next();
+  }
 
   // Bearer-token API clients are not vulnerable to browser cookie CSRF.
   if (!req.cookies?.[env.sessionCookieName]) return next();
