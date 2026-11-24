@@ -517,7 +517,7 @@ const TakeBreak = () => {
             <textarea
               value={request.reason}
               onChange={(event) => setRequest({ ...request, reason: event.target.value })}
-              placeholder="Why do you need a custom break?"
+              placeholder="Provide specific reason for custom break (e.g. Doctor appointment, urgent call, personal wellness)..."
               rows={3}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             />

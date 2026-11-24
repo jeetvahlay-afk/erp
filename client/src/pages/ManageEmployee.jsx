@@ -318,7 +318,7 @@ const ManageEmployee = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search employee by name, ID, email..."
+            placeholder="Search employees by name, employee ID, department, or email..."
             className="w-full bg-slate-50/70 border border-slate-200/80 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
           />
         </div>

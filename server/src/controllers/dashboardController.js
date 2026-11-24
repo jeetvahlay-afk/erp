@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const Interview = require('../models/Interview');
+const AssessmentCandidate = require('../models/AssessmentCandidate');
 const Payroll = require('../models/Payroll');
 const Department = require('../models/Department');
 const BreakLog = require('../models/BreakLog');
@@ -9,7 +10,16 @@ const Notification = require('../models/Notification');
 const Settings = require('../models/Settings');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
-const { startOfLogicalShiftDay } = require('../utils/date');
+const { startOfLogicalShiftDay, createFromIST, getISTComponents, isIsoDate, isIsoMonth } = require('../utils/date');
+
+const parseDashboardDate = (dateParam) => {
+  if (dateParam && isIsoDate(dateParam)) {
+    const [y, m, d] = String(dateParam).split('-').map(Number);
+    return createFromIST(y, m - 1, d, 12, 0, 0, 0);
+  }
+  const parsed = dateParam ? new Date(dateParam) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
 
 const ADMIN_ROLES = new Set(['admin', 'super admin']);
 const HR_ROLES = new Set(['admin', 'super admin', 'hr']);
@@ -66,29 +76,41 @@ const getLeavePolicy = async () => {
   };
 };
 
-const getDepartmentDistribution = () => User.aggregate([
-  { $match: { deletedAt: null, isActive: true } },
-  { $group: { _id: { $ifNull: ['$department', 'Unassigned'] }, count: { $sum: 1 } } },
-  { $sort: { count: -1, _id: 1 } },
-  { $project: { _id: 0, label: '$_id', value: '$count' } },
-]);
+const getDepartmentDistribution = (department = null) => {
+  const match = { deletedAt: null, isActive: true };
+  if (department) match.department = department;
+  return User.aggregate([
+    { $match: match },
+    { $group: { _id: { $ifNull: ['$department', 'Unassigned'] }, count: { $sum: 1 } } },
+    { $sort: { count: -1, _id: 1 } },
+    { $project: { _id: 0, label: '$_id', value: '$count' } },
+  ]);
+};
 
-const getWeeklyAttendance = async () => {
+const getWeeklyAttendance = async (department = null) => {
   const today = startOfDay();
   const from = addDays(today, -6);
-  const [rows, activeEmployees] = await Promise.all([
-    Attendance.aggregate([
-      { $match: { date: { $gte: from, $lte: endOfDay(today) } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-          present: { $sum: { $cond: [{ $in: ['$status', ['Present', 'Late', 'Half Day']] }, 1, 0] } },
-          late: { $sum: { $cond: [{ $eq: ['$status', 'Late'] }, 1, 0] } },
-          absent: { $sum: { $cond: [{ $eq: ['$status', 'Absent'] }, 1, 0] } },
-        },
+  const userFilter = { deletedAt: null, isActive: true };
+  if (department) userFilter.department = department;
+
+  const [scopedUserIds, activeEmployees] = await Promise.all([
+    department ? User.find(userFilter).distinct('_id') : null,
+    User.countDocuments(userFilter),
+  ]);
+
+  const matchStage = { date: { $gte: from, $lte: endOfDay(today) } };
+  if (scopedUserIds) matchStage.user = { $in: scopedUserIds };
+
+  const rows = await Attendance.aggregate([
+    { $match: matchStage },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+        present: { $sum: { $cond: [{ $in: ['$status', ['Present', 'Late', 'Half Day']] }, 1, 0] } },
+        late: { $sum: { $cond: [{ $or: [{ $eq: ['$status', 'Late'] }, { $eq: ['$isLateCheckIn', true] }] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $eq: ['$status', 'Absent'] }, 1, 0] } },
       },
-    ]),
-    User.countDocuments({ deletedAt: null, isActive: true }),
+    },
   ]);
   const byDate = new Map(rows.map((row) => [row._id, row]));
   return Array.from({ length: 7 }, (_, index) => {
@@ -110,14 +132,89 @@ const getWeeklyAttendance = async () => {
   });
 };
 
-const getPayrollTrend = async () => {
+const getMonthlyAttendance = async (department = null) => {
+  const today = startOfDay();
+  const mStart = startOfMonth(today);
+  const userFilter = { deletedAt: null, isActive: true };
+  if (department) userFilter.department = department;
+
+  const [scopedUserIds, activeEmployees] = await Promise.all([
+    department ? User.find(userFilter).distinct('_id') : null,
+    User.countDocuments(userFilter),
+  ]);
+
+  const matchStage = { date: { $gte: mStart, $lte: endOfDay(today) } };
+  if (scopedUserIds) matchStage.user = { $in: scopedUserIds };
+
+  const rows = await Attendance.aggregate([
+    { $match: matchStage },
+    {
+      $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+        present: { $sum: { $cond: [{ $in: ['$status', ['Present', 'Late', 'Half Day']] }, 1, 0] } },
+        late: { $sum: { $cond: [{ $or: [{ $eq: ['$status', 'Late'] }, { $eq: ['$isLateCheckIn', true] }] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $eq: ['$status', 'Absent'] }, 1, 0] } },
+      },
+    },
+  ]);
+  const byDate = new Map(rows.map((row) => [row._id, row]));
+
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const segments = [
+    { label: 'Week 1', start: 1, end: 7 },
+    { label: 'Week 2', start: 8, end: 14 },
+    { label: 'Week 3', start: 15, end: 21 },
+    { label: 'Week 4', start: 22, end: 28 },
+    { label: 'Week 5', start: 29, end: daysInMonth },
+  ];
+
+  return segments.map((seg) => {
+    let sumPresent = 0;
+    let sumLate = 0;
+    let sumAbsent = 0;
+    let workingDays = 0;
+
+    for (let day = seg.start; day <= seg.end; day++) {
+      const d = new Date(today.getFullYear(), today.getMonth(), day);
+      if (d > today) break;
+      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+      if (!isWeekend) workingDays += 1;
+      const key = d.toISOString().slice(0, 10);
+      const row = byDate.get(key) || {};
+      const p = row.present || 0;
+      sumPresent += p;
+      sumLate += (row.late || 0);
+      const computedAbsent = (row.absent && row.absent > 0)
+        ? row.absent
+        : (!isWeekend ? Math.max(0, activeEmployees - p) : 0);
+      sumAbsent += computedAbsent;
+    }
+
+    const divisor = Math.max(1, workingDays);
+    return {
+      label: seg.label,
+      present: Math.round(sumPresent / divisor),
+      late: Math.round(sumLate / divisor),
+      absent: Math.round(sumAbsent / divisor),
+      totalPresent: sumPresent,
+      workingDays,
+    };
+  });
+};
+
+const getPayrollTrend = async (department = null) => {
   const monthStart = startOfMonth();
   const months = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(monthStart.getFullYear(), monthStart.getMonth() - (5 - index), 1);
     return { key: isoMonth(date), label: date.toLocaleDateString('en-US', { month: 'short' }) };
   });
+  const match = { month: { $in: months.map((month) => month.key) } };
+  if (department) {
+    const deptUserIds = await User.find({ department, deletedAt: null }).distinct('_id');
+    match.user = { $in: deptUserIds };
+  }
   const rows = await Payroll.aggregate([
-    { $match: { month: { $in: months.map((month) => month.key) } } },
+    { $match: match },
     { $group: { _id: '$month', gross: { $sum: '$baseSalary' }, net: { $sum: '$netSalary' }, count: { $sum: 1 } } },
   ]);
   const byMonth = new Map(rows.map((row) => [row._id, row]));
@@ -125,65 +222,201 @@ const getPayrollTrend = async () => {
 };
 
 const getRecruitmentFunnel = async () => {
-  const groups = await Interview.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
-  const counts = new Map(groups.map((group) => [group._id, group.count]));
+  // Query all active recruitment candidates
+  const interviews = await Interview.find({ deletedAt: null })
+    .select('status stage trainingStatus email candidateCode')
+    .lean();
+
+  let assessmentCandidates = [];
+  try {
+    assessmentCandidates = await AssessmentCandidate.find()
+      .select('status colorCategory isVerified email candidateCode')
+      .lean();
+  } catch {
+    // silently continue if collection is empty
+  }
+
+  const interviewEmails = new Set(
+    interviews.map((i) => String(i.email || '').toLowerCase().trim()).filter(Boolean)
+  );
+  const interviewCodes = new Set(
+    interviews.map((i) => String(i.candidateCode || '').toUpperCase().trim()).filter(Boolean)
+  );
+
+  // Find any portal candidates not yet linked/synced to interview collection
+  const unlinkedAssessments = assessmentCandidates.filter((a) => {
+    const email = String(a.email || '').toLowerCase().trim();
+    const code = String(a.candidateCode || '').toUpperCase().trim();
+    return (!email || !interviewEmails.has(email)) && (!code || !interviewCodes.has(code));
+  });
+
+  let daily = 0;
+  let assessment = 0;
+  let interview = 0;
+  let training = 0;
+  let hired = 0;
+  let shortlisted = 0;
+  let rejected = 0;
+  let selected = 0;
+
+  for (const record of interviews) {
+    const s = String(record.status || '').toLowerCase().trim();
+    const stage = String(record.stage || '').toLowerCase().trim();
+    const tStatus = String(record.trainingStatus || '').toLowerCase().trim();
+
+    // 1. Hired / Joined Stage
+    if (s === 'joined' || stage.includes('joined') || tStatus === 'joined') {
+      hired += 1;
+      shortlisted += 1;
+    }
+    // 2. Training Stage (Ongoing, Completed, Probation, In Training)
+    else if (
+      stage.includes('training') ||
+      ['in training', 'training', 'training candidates', 'all trainees', 'ongoing', 'completed', 'probation', 'moved to probation'].includes(s) ||
+      ['ongoing', 'completed', 'probation'].includes(tStatus)
+    ) {
+      training += 1;
+      shortlisted += 1;
+    }
+    // 3. Interview Stage (1st Round, 2nd Round, Selected, Rejected)
+    else if (
+      stage.includes('interview') ||
+      s.includes('1st round') ||
+      s.includes('2nd round') ||
+      s === 'selected' ||
+      s === 'rejected'
+    ) {
+      interview += 1;
+      if (s === 'selected') selected += 1;
+      if (s === 'rejected') rejected += 1;
+      else shortlisted += 1;
+    }
+    // 4. Assessment Stage (Pending, Running, Red, Yellow, Green, Assessment Done)
+    else if (
+      stage.includes('assessment') ||
+      ['pending', 'running', 'red', 'yellow', 'green', 'assessment done'].includes(s) ||
+      s.includes('assessment')
+    ) {
+      assessment += 1;
+      // Green, Yellow, and completed assessments count as shortlisted for interview review
+      if (['green', 'yellow', 'assessment done'].includes(s)) {
+        shortlisted += 1;
+      }
+    }
+    // 5. Daily Candidate Intake Stage (New candidate info, scheduled, reschedule, etc.)
+    else {
+      daily += 1;
+      if (s === 'interview scheduled' || s === 'scheduled') {
+        shortlisted += 1;
+      }
+    }
+  }
+
+  // Account for any unlinked assessment candidate registrations
+  for (const a of unlinkedAssessments) {
+    const s = String(a.status || '').toLowerCase().trim();
+    const cat = String(a.colorCategory || '').toLowerCase().trim();
+    assessment += 1;
+    if (['green', 'yellow'].includes(cat) || s === 'completed') {
+      shortlisted += 1;
+    }
+  }
+
+  const applied = interviews.length + unlinkedAssessments.length;
+
   return {
-    applied: sum([...counts.values()]),
-    daily: sum(['New Candidate Info', 'Interview Scheduled', 'Reschedule', 'Rescheduled', 'No Response', 'Scheduled'].map((key) => counts.get(key))),
-    interviewed: sum(['Assessment Done', '1st Round', '2nd Round', 'Selected', 'Rejected'].map((key) => counts.get(key))),
-    training: sum(['In Training', 'Training Candidates', 'Training'].map((key) => counts.get(key))),
-    hired: counts.get('Joined') || 0,
-    shortlisted: sum(['Interview Scheduled', 'Assessment Done', '1st Round', '2nd Round', 'Selected', 'In Training'].map((key) => counts.get(key))),
-    rejected: counts.get('Rejected') || 0,
-    selected: counts.get('Selected') || 0,
+    applied,
+    daily,
+    assessment,
+    shortlisted: Math.max(shortlisted, interview + training + hired),
+    interviewed: interview,
+    interview,
+    training,
+    hired,
+    rejected,
+    selected,
   };
 };
 
-const adminDashboard = async () => {
-  const today = startOfLogicalShiftDay();
-  const month = isoMonth();
-  const monthStart = startOfMonth();
+const adminDashboard = async (query = {}, reqUser = null) => {
+  const validDate = parseDashboardDate(query.date);
+  const today = query.date && isIsoDate(query.date) ? startOfLogicalShiftDay(query.date) : startOfLogicalShiftDay(validDate);
+  const month = query.month && isIsoMonth(query.month) ? query.month : isoMonth(validDate);
+  const monthStart = startOfMonth(validDate);
+
+  const isDeptScoped = reqUser?.dataScope === 'department' && reqUser.department;
+  const userFilter = { deletedAt: null };
+  if (isDeptScoped) userFilter.department = reqUser.department;
+
+  const [scopedUserIds] = await Promise.all([
+    isDeptScoped ? User.find(userFilter).distinct('_id') : null,
+  ]);
+
+  const attPresentQuery = { date: today, status: { $in: ['Present', 'Late', 'Half Day'] } };
+  const attLateQuery = { date: today, $or: [{ status: 'Late' }, { isLateCheckIn: true }] };
+  const leavePendingQuery = { status: 'Pending' };
+  const payrollQuery = { month };
+  if (isDeptScoped) {
+    attPresentQuery.user = { $in: scopedUserIds };
+    attLateQuery.user = { $in: scopedUserIds };
+    leavePendingQuery.user = { $in: scopedUserIds };
+    payrollQuery.user = { $in: scopedUserIds };
+  }
+
   const [
     totalEmployees, activeEmployees, inactiveEmployees, newJoiners, departments,
     presentToday, lateToday, pendingLeaves, payrollRows, upcomingInterviews,
-    distribution, weeklyAttendance, payrollTrend, pendingApprovalRows, recentCandidates,
-    recruitment,
+    distribution, weeklyAttendance, monthlyAttendance, payrollTrend, pendingApprovalRows, recentCandidates,
+    recruitment, lateRows,
   ] = await Promise.all([
-    User.countDocuments({ deletedAt: null }),
-    User.countDocuments({ deletedAt: null, isActive: true }),
-    User.countDocuments({ deletedAt: null, isActive: false }),
-    User.countDocuments({ deletedAt: null, createdAt: { $gte: monthStart } }),
-    Department.countDocuments({ isActive: true }),
-    Attendance.countDocuments({ date: today, status: { $in: ['Present', 'Late', 'Half Day'] } }),
-    Attendance.countDocuments({ date: today, status: 'Late' }),
-    Leave.countDocuments({ status: 'Pending' }),
-    Payroll.find({ month }).select('netSalary paymentStatus').lean(),
-    Interview.countDocuments({ interviewDate: { $gte: new Date() }, status: { $nin: ['Rejected', 'Joined'] } }),
-    getDepartmentDistribution(),
-    getWeeklyAttendance(),
-    getPayrollTrend(),
-    Leave.find({ status: 'Pending' }).populate('user', 'name employeeId department profileImage').sort({ createdAt: 1 }).limit(5).lean(),
+    User.countDocuments(userFilter),
+    User.countDocuments({ ...userFilter, isActive: true }),
+    User.countDocuments({ ...userFilter, isActive: false }),
+    User.countDocuments({ ...userFilter, createdAt: { $gte: monthStart } }),
+    isDeptScoped ? 1 : Department.countDocuments({ isActive: true }),
+    Attendance.countDocuments(attPresentQuery),
+    Attendance.countDocuments(attLateQuery),
+    Leave.countDocuments(leavePendingQuery),
+    Payroll.find(payrollQuery).select('netSalary paymentStatus').lean(),
+    Interview.countDocuments({
+      interviewDate: { $gte: startOfDay(validDate) },
+      status: { $nin: ['Rejected', 'Joined', 'Completed', 'Left', 'Ineligible', 'Discontinued'] },
+    }),
+    getDepartmentDistribution(isDeptScoped ? reqUser.department : null),
+    getWeeklyAttendance(isDeptScoped ? reqUser.department : null),
+    getMonthlyAttendance(isDeptScoped ? reqUser.department : null),
+    getPayrollTrend(isDeptScoped ? reqUser.department : null),
+    Leave.find(leavePendingQuery).populate('user', 'name employeeId department profileImage').sort({ createdAt: 1 }).limit(5).lean(),
     Interview.find().sort({ entryDate: -1, createdAt: -1 }).limit(5).lean(),
     getRecruitmentFunnel(),
+    Attendance.find(attLateQuery)
+      .populate('user', 'name department employeeId profileImage')
+      .sort({ loginTime: 1 })
+      .limit(10)
+      .lean(),
   ]);
   const payrollNet = sum(payrollRows.map((row) => row.netSalary));
   const paidCount = payrollRows.filter((row) => row.paymentStatus === 'paid').length;
   return {
     view: 'admin', generatedAt: new Date(),
+    selectedDate: validDate.toISOString().slice(0, 10),
+    selectedMonth: month,
     kpis: { totalEmployees, activeEmployees, inactiveEmployees, newJoiners, departments, presentToday, lateToday, absentToday: Math.max(0, activeEmployees - presentToday), pendingLeaves, upcomingInterviews, payrollNet, payrollCount: payrollRows.length, paidCount },
-    distribution, weeklyAttendance, payrollTrend,
+    distribution, weeklyAttendance, monthlyAttendance, payrollTrend,
     pendingApprovals: pendingApprovalRows,
     recentCandidates,
     recruitment,
+    lateArrivals: lateRows,
   };
 };
 
-const employeeDashboard = async (user) => {
-  const now = new Date();
-  const today = startOfLogicalShiftDay(now);
-  const weekStart = addDays(startOfDay(now), -6);
-  const monthStart = startOfMonth(now);
-  const yearStart = startOfYear(now);
+const employeeDashboard = async (user, query = {}) => {
+  const validDate = parseDashboardDate(query.date);
+  const now = validDate;
+  const today = query.date && isIsoDate(query.date) ? startOfLogicalShiftDay(query.date) : startOfLogicalShiftDay(validDate);
+  const weekStart = addDays(startOfDay(validDate), -6);
+  const monthStart = startOfMonth(validDate);
+  const yearStart = startOfYear(validDate);
   const [employee, attendanceRows, todayAttendance, breaks, leaves, policy, payroll, notifications] = await Promise.all([
     User.findById(user._id).lean(),
     Attendance.find({ user: user._id, date: { $gte: yearStart } }).sort({ date: -1 }).lean(),
@@ -242,38 +475,81 @@ const employeeDashboard = async (user) => {
   };
 };
 
-const hrDashboard = async () => {
-  const today = startOfLogicalShiftDay();
-  const monthStart = startOfMonth();
+const hrDashboard = async (query = {}, reqUser = null) => {
+  const validDate = parseDashboardDate(query.date);
+  const today = query.date && isIsoDate(query.date) ? startOfLogicalShiftDay(query.date) : startOfLogicalShiftDay(validDate);
+  const month = query.month && isIsoMonth(query.month) ? query.month : isoMonth(validDate);
+  const monthStart = startOfMonth(validDate);
+
+  const isDeptScoped = reqUser?.dataScope === 'department' && reqUser.department;
+  const userFilter = { deletedAt: null };
+  if (isDeptScoped) userFilter.department = reqUser.department;
+
+  const [scopedUserIds] = await Promise.all([
+    isDeptScoped ? User.find(userFilter).distinct('_id') : null,
+  ]);
+
+  const attPresentQuery = { date: today, status: { $in: ['Present', 'Late', 'Half Day'] } };
+  const attLateQuery = { date: today, $or: [{ status: 'Late' }, { isLateCheckIn: true }] };
+  const leavePendingQuery = { status: 'Pending' };
+  const payrollMatch = { month };
+  if (isDeptScoped) {
+    attPresentQuery.user = { $in: scopedUserIds };
+    attLateQuery.user = { $in: scopedUserIds };
+    leavePendingQuery.user = { $in: scopedUserIds };
+    payrollMatch.user = { $in: scopedUserIds };
+  }
+
   const [
     totalEmployees, activeEmployees, newJoiners, lateToday, attendanceToday,
-    payroll, distribution, weeklyAttendance, pendingApprovals, upcomingInterviews,
+    payroll, distribution, weeklyAttendance, monthlyAttendance, pendingApprovals, upcomingInterviews,
     lateRows, funnel,
   ] = await Promise.all([
-    User.countDocuments({ deletedAt: null }),
-    User.countDocuments({ deletedAt: null, isActive: true }),
-    User.countDocuments({ deletedAt: null, createdAt: { $gte: monthStart } }),
-    Attendance.countDocuments({ date: today, status: 'Late' }),
-    Attendance.countDocuments({ date: today, status: { $in: ['Present', 'Late', 'Half Day'] } }),
-    Payroll.aggregate([{ $match: { month: isoMonth() } }, { $group: { _id: null, net: { $sum: '$netSalary' }, count: { $sum: 1 } } }]),
-    getDepartmentDistribution(), getWeeklyAttendance(),
-    Leave.find({ status: 'Pending' }).populate('user', 'name employeeId department profileImage').sort({ createdAt: 1 }).limit(6).lean(),
-    Interview.find({ interviewDate: { $gte: new Date() }, status: { $nin: ['Rejected', 'Joined'] } }).sort({ interviewDate: 1 }).limit(5).lean(),
-    Attendance.find({ date: today, status: 'Late' }).populate('user', 'name department employeeId profileImage').sort({ loginTime: 1 }).limit(6).lean(),
+    User.countDocuments(userFilter),
+    User.countDocuments({ ...userFilter, isActive: true }),
+    User.countDocuments({ ...userFilter, createdAt: { $gte: monthStart } }),
+    Attendance.countDocuments(attLateQuery),
+    Attendance.countDocuments(attPresentQuery),
+    Payroll.aggregate([{ $match: payrollMatch }, { $group: { _id: null, net: { $sum: '$netSalary' }, count: { $sum: 1 } } }]),
+    getDepartmentDistribution(isDeptScoped ? reqUser.department : null),
+    getWeeklyAttendance(isDeptScoped ? reqUser.department : null),
+    getMonthlyAttendance(isDeptScoped ? reqUser.department : null),
+    Leave.find(leavePendingQuery).populate('user', 'name employeeId department profileImage').sort({ createdAt: 1 }).limit(6).lean(),
+    Interview.find({
+      interviewDate: { $gte: startOfDay(validDate) },
+      status: { $nin: ['Rejected', 'Joined', 'Completed', 'Left', 'Ineligible', 'Discontinued'] },
+    })
+      .select('candidateName candidatePost phoneNumber interviewDate interviewTime status branch')
+      .sort({ interviewDate: 1 })
+      .limit(6)
+      .lean(),
+    Attendance.find(attLateQuery)
+      .populate('user', 'name department employeeId profileImage')
+      .sort({ loginTime: 1 })
+      .limit(10)
+      .lean(),
     getRecruitmentFunnel(),
   ]);
   return {
     view: 'hr', generatedAt: new Date(),
+    selectedDate: validDate.toISOString().slice(0, 10),
+    selectedMonth: month,
     kpis: { totalEmployees, activeEmployees, newJoiners, lateToday, attendanceToday, attendanceRate: percentage(attendanceToday, activeEmployees), payrollCost: payroll[0]?.net || 0 },
-    distribution, weeklyAttendance, pendingApprovals, upcomingInterviews, lateArrivals: lateRows, recruitment: funnel,
+    distribution, weeklyAttendance, monthlyAttendance, pendingApprovals, upcomingInterviews, lateArrivals: lateRows, recruitment: funnel,
   };
 };
 
-const payrollDashboard = async () => {
+const payrollDashboard = async (query = {}, reqUser = null) => {
   const month = isoMonth();
+  const isDeptScoped = reqUser?.dataScope === 'department' && reqUser.department;
+  const match = { month };
+  if (isDeptScoped) {
+    const deptUserIds = await User.find({ department: reqUser.department, deletedAt: null }).distinct('_id');
+    match.user = { $in: deptUserIds };
+  }
   const [records, trend] = await Promise.all([
-    Payroll.find({ month }).populate('user', 'name employeeId department designation').lean(),
-    getPayrollTrend(),
+    Payroll.find(match).populate('user', 'name employeeId department designation').lean(),
+    getPayrollTrend(isDeptScoped ? reqUser.department : null),
   ]);
   const gross = sum(records.map((row) => row.baseSalary + sum(Object.values(row.allowances || {}))));
   const deductions = sum(records.map((row) => sum(Object.values(row.deductions || {}))));
@@ -306,11 +582,17 @@ const payrollDashboard = async () => {
 };
 
 const recruitmentDashboard = async () => {
-  const now = new Date();
   const [funnel, candidates, upcoming, byPost] = await Promise.all([
     getRecruitmentFunnel(),
     Interview.find().sort({ entryDate: -1, createdAt: -1 }).limit(8).lean(),
-    Interview.find({ interviewDate: { $gte: now }, status: { $nin: ['Rejected', 'Joined'] } }).sort({ interviewDate: 1 }).limit(6).lean(),
+    Interview.find({
+      interviewDate: { $gte: startOfDay() },
+      status: { $nin: ['Rejected', 'Joined', 'Completed', 'Left', 'Ineligible', 'Discontinued'] },
+    })
+      .select('candidateName candidatePost phoneNumber interviewDate interviewTime status branch')
+      .sort({ interviewDate: 1 })
+      .limit(6)
+      .lean(),
     Interview.aggregate([
       { $group: { _id: { $ifNull: ['$candidatePost', 'Unspecified'] }, applicants: { $sum: 1 }, hired: { $sum: { $cond: [{ $eq: ['$status', 'Joined'] }, 1, 0] } } } },
       { $sort: { applicants: -1 } }, { $limit: 8 },
@@ -320,20 +602,47 @@ const recruitmentDashboard = async () => {
   return { view: 'recruitment', generatedAt: new Date(), funnel, candidates, upcoming, byPost };
 };
 
-const attendanceDashboard = async () => {
-  const today = startOfLogicalShiftDay();
-  const monthStart = startOfMonth();
+const attendanceDashboard = async (query = {}, reqUser = null) => {
+  let today;
+  if (query.date && isIsoDate(query.date)) {
+    today = startOfLogicalShiftDay(query.date);
+  } else {
+    const ist = getISTComponents(new Date());
+    today = createFromIST(ist.year, ist.month, ist.date, 0, 0, 0, 0);
+  }
+  const monthStart = startOfMonth(today);
   const now = new Date();
-  const [activeEmployees, todayRows, monthlyRows, weekly, lateEmployees, breaks] = await Promise.all([
-    User.countDocuments({ deletedAt: null, isActive: true }),
-    Attendance.find({ date: today }).populate('user', 'name employeeId department profileImage').sort({ loginTime: 1 }).lean(),
-    Attendance.find({ date: { $gte: monthStart } }).lean(),
-    getWeeklyAttendance(),
-    Attendance.find({ date: today, status: 'Late' }).populate('user', 'name employeeId department profileImage').sort({ loginTime: 1 }).limit(8).lean(),
-    BreakLog.find({ startTime: { $gte: today } }).lean(),
+
+  const isDeptScoped = reqUser?.dataScope === 'department' && reqUser.department;
+  const userFilter = { deletedAt: null, isActive: true };
+  if (isDeptScoped) userFilter.department = reqUser.department;
+
+  const [activeEmployees, scopedUserIds] = await Promise.all([
+    User.countDocuments(userFilter),
+    isDeptScoped ? User.find(userFilter).distinct('_id') : null,
+  ]);
+
+  const todayQuery = { date: today };
+  const monthlyQuery = { date: { $gte: monthStart } };
+  const lateQuery = { date: today, $or: [{ status: 'Late' }, { isLateCheckIn: true }] };
+  const breakQuery = { startTime: { $gte: today } };
+
+  if (isDeptScoped) {
+    todayQuery.user = { $in: scopedUserIds };
+    monthlyQuery.user = { $in: scopedUserIds };
+    lateQuery.user = { $in: scopedUserIds };
+    breakQuery.user = { $in: scopedUserIds };
+  }
+
+  const [todayRows, monthlyRows, weekly, lateEmployees, breaks] = await Promise.all([
+    Attendance.find(todayQuery).populate('user', 'name employeeId department profileImage').sort({ loginTime: 1 }).lean(),
+    Attendance.find(monthlyQuery).lean(),
+    getWeeklyAttendance(isDeptScoped ? reqUser.department : null),
+    Attendance.find(lateQuery).populate('user', 'name employeeId department profileImage').sort({ loginTime: 1 }).limit(10).lean(),
+    BreakLog.find(breakQuery).lean(),
   ]);
   const present = todayRows.filter((row) => ['Present', 'Late', 'Half Day'].includes(row.status)).length;
-  const late = todayRows.filter((row) => row.status === 'Late').length;
+  const late = todayRows.filter((row) => row.status === 'Late' || row.isLateCheckIn).length;
   const absent = Math.max(0, activeEmployees - present);
 
   const getRecordHours = (row) => {
@@ -365,25 +674,25 @@ const attendanceDashboard = async () => {
   };
 };
 
-const buildView = async (view, user) => {
+const buildView = async (view, user, query = {}) => {
   switch (view) {
-    case 'employee': return employeeDashboard(user);
-    case 'admin': requireRole(user, ADMIN_ROLES, view); return adminDashboard();
-    case 'hr': requireRole(user, HR_ROLES, view); return hrDashboard();
-    case 'payroll': requireRole(user, ADMIN_ROLES, view); return payrollDashboard();
-    case 'recruitment': requireRole(user, RECRUITMENT_ROLES, view); return recruitmentDashboard();
-    case 'attendance': requireRole(user, HR_ROLES, view); return attendanceDashboard();
+    case 'employee': return employeeDashboard(user, query);
+    case 'admin': requireRole(user, ADMIN_ROLES, view); return adminDashboard(query, user);
+    case 'hr': requireRole(user, HR_ROLES, view); return hrDashboard(query, user);
+    case 'payroll': requireRole(user, ADMIN_ROLES, view); return payrollDashboard(query, user);
+    case 'recruitment': requireRole(user, RECRUITMENT_ROLES, view); return recruitmentDashboard(query, user);
+    case 'attendance': requireRole(user, HR_ROLES, view); return attendanceDashboard(query, user);
     default: throw new AppError('Unknown dashboard view', 404, 'DASHBOARD_NOT_FOUND');
   }
 };
 
 const getDashboard = asyncHandler(async (req, res) => {
   const view = ADMIN_ROLES.has(req.user.role) ? 'admin' : 'employee';
-  res.json(await buildView(view, req.user));
+  res.json(await buildView(view, req.user, req.query));
 });
 
 const getDashboardView = asyncHandler(async (req, res) => {
-  res.json(await buildView(String(req.params.view || '').toLowerCase(), req.user));
+  res.json(await buildView(String(req.params.view || '').toLowerCase(), req.user, req.query));
 });
 
 module.exports = { getDashboard, getDashboardView };

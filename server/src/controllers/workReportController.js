@@ -48,7 +48,23 @@ const saveMine = asyncHandler(async (req, res) => {
 
 const listAll = asyncHandler(async (req, res) => {
   const query = {};
-  if (req.query.userId) {
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const deptUserIds = await User.find({ department: req.user.department, deletedAt: null }).distinct('_id');
+    if (req.query.userId) {
+      let targetUserId = req.query.userId;
+      if (!mongoose.isValidObjectId(targetUserId)) {
+        const user = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id');
+        if (user) targetUserId = user._id;
+        else return res.json([]);
+      }
+      if (!deptUserIds.some((id) => String(id) === String(targetUserId))) {
+        return res.json([]);
+      }
+      query.user = targetUserId;
+    } else {
+      query.user = { $in: deptUserIds };
+    }
+  } else if (req.query.userId) {
     let targetUserId = req.query.userId;
     if (!mongoose.isValidObjectId(targetUserId)) {
       const user = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id');

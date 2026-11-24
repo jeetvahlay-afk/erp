@@ -239,7 +239,7 @@ const BreakConfig = () => {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Break Name</label>
             <input
               type="text"
-              placeholder="e.g. Lunch Break, Tea Break"
+              placeholder="Enter break name"
               className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
               value={editing?.breakType || ''}
               onChange={(e) => setEditing({ ...editing, breakType: e.target.value })}

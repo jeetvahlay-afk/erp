@@ -31,11 +31,15 @@ const cookieOptions = (remember = false, httpOnly = true) => ({
   ...(remember ? { maxAge: env.rememberCookieDays * 24 * 60 * 60 * 1000 } : {}),
 });
 
-const serializeAuthUser = (user) => ({
+const serializeAuthUser = (user, roleDoc = null) => ({
   _id: user._id,
   name: user.name,
   email: user.email,
   role: user.role,
+  department: user.department || '',
+  dataScope: (['super admin', 'admin'].includes(String(user.role || '').toLowerCase())
+    ? 'all'
+    : (user.dataScope || roleDoc?.dataScope || 'all')),
   employeeId: user.employeeId,
   allowedRoutes: user.allowedRoutes || [],
   permissions: user.permissions || [],
@@ -144,8 +148,8 @@ const loginUser = asyncHandler(async (req, res) => {
   await user.recordSuccessfulLogin();
   const remember = req.body.remember === true;
   establishBrowserSession(res, user, remember);
-  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes permissions').lean();
-  const authUser = serializeAuthUser(user);
+  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes permissions dataScope').lean();
+  const authUser = serializeAuthUser(user, roleDoc);
   if (roleDoc?.allowedRoutes?.length) {
     authUser.allowedRoutes = sanitizeRoutes([...new Set([...roleDoc.allowedRoutes, ...(authUser.allowedRoutes || [])])]);
     authUser.permissions = [...new Set([...(roleDoc.permissions || []), ...permissionsForRoutes(authUser.allowedRoutes)])];
@@ -157,7 +161,10 @@ const getMe = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (!user) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
   const userJson = user.toJSON();
-  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes permissions').lean();
+  const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes permissions dataScope').lean();
+  userJson.dataScope = ['super admin', 'admin'].includes(String(user.role || '').toLowerCase())
+    ? 'all'
+    : (user.dataScope || roleDoc?.dataScope || 'all');
   if (roleDoc?.allowedRoutes?.length) {
     userJson.allowedRoutes = sanitizeRoutes([...new Set([...roleDoc.allowedRoutes, ...(userJson.allowedRoutes || [])])]);
     userJson.permissions = [...new Set([...(roleDoc.permissions || []), ...permissionsForRoutes(userJson.allowedRoutes)])];

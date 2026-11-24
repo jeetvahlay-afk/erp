@@ -169,24 +169,34 @@ const AttendanceDetail = () => {
   };
 
   const openEdit = () => {
-    if (!selectedAttendance) return;
     setEdit({
-      status: selectedAttendance.status,
-      loginTime: toLocalInput(selectedAttendance.loginTime),
-      logoutTime: toLocalInput(selectedAttendance.logoutTime),
+      status: selectedAttendance?.status || 'Present',
+      loginTime: toLocalInput(selectedAttendance?.loginTime),
+      logoutTime: toLocalInput(selectedAttendance?.logoutTime),
     });
     setEditing(true);
   };
 
   const saveAttendance = async () => {
-    if (!selectedAttendance) return;
     setSubmitting(true);
     try {
-      await api.patch(`/api/attendance/${selectedAttendance._id}`, {
-        status: edit.status,
-        loginTime: edit.loginTime || null,
-        logoutTime: edit.logoutTime || null,
-      });
+      if (selectedAttendance?._id) {
+        await api.patch(`/api/attendance/${selectedAttendance._id}`, {
+          status: edit.status,
+          loginTime: edit.loginTime || null,
+          logoutTime: edit.logoutTime || null,
+          date: selectedDate,
+        });
+      } else {
+        await api.post('/api/attendance/manual-update', {
+          userId: id,
+          date: selectedDate,
+          status: edit.status,
+          loginTime: edit.loginTime || null,
+          logoutTime: edit.logoutTime || null,
+          reason: 'Manual attendance update from Attendance Details',
+        });
+      }
       feedback.success('Attendance record updated successfully');
       setEditing(false);
       await loadData();
@@ -468,16 +478,15 @@ const AttendanceDetail = () => {
                   ? 'Half Day (3rd Late Cut)'
                   : selectedAttendance?.status || 'No attendance'}
               </StatusBadge>
-              {selectedAttendance && (
-                <button
-                  type="button"
-                  onClick={openEdit}
-                  aria-label={`Edit attendance for ${selectedDate}`}
-                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                >
-                  <Edit3 size={14} />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={openEdit}
+                aria-label={`Edit or mark attendance for ${selectedDate}`}
+                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                title="Edit / Mark Attendance"
+              >
+                <Edit3 size={14} />
+              </button>
             </div>
           </div>
 

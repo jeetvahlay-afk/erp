@@ -123,7 +123,7 @@ const ManageRoutes = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search employee..."
+              placeholder="Search employee by name, role, or ID..."
               className="w-full bg-white border border-slate-200/90 rounded-xl pl-9 pr-8 py-2 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs"
             />
             {search && (
@@ -319,7 +319,7 @@ const ManageRoutes = () => {
                 type="text"
                 value={routeSearch}
                 onChange={(e) => setRouteSearch(e.target.value)}
-                placeholder="Filter routes by name or path..."
+                placeholder="Search routes by title, module, or path (e.g. /dashboard/admin)..."
                 className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-8 pr-7 py-1.5 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
               />
               {routeSearch && (

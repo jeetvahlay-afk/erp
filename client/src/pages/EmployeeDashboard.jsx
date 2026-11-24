@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import useLiveData from '../hooks/useLiveData';
+import DashboardDateSelector from '../components/DashboardDateSelector';
 import api, { getApiError } from '../lib/api';
 import { feedback } from '../lib/feedback';
 import { ErrorState, LoadingState } from '../components/ui/EnterpriseUI';
@@ -42,7 +43,13 @@ const formatElapsed = (seconds = 0) => {
 const EmployeeDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { data, loading, error, refresh } = useLiveData('/api/dashboard/employee');
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const { data, loading, error, refresh } = useLiveData(
+    selectedDate ? `/api/dashboard/employee?date=${selectedDate}` : '/api/dashboard/employee'
+  );
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -139,10 +146,7 @@ const EmployeeDashboard = () => {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <div className="inline-flex items-center gap-1.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 shadow-2xs">
-            <Calendar size={13} className="text-slate-400" />
-            <span>{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
-          </div>
+          <DashboardDateSelector value={selectedDate} onChange={setSelectedDate} />
 
           <button
             type="button"

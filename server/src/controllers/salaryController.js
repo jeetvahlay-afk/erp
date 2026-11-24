@@ -13,6 +13,12 @@ const MONEY_FIELDS = [
 
 const getSalaryStructure = asyncHandler(async (req, res) => {
   validators.objectId(req.params.userId, 'user id');
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const targetUser = await User.findById(req.params.userId).select('department');
+    if (!targetUser || targetUser.department !== req.user.department) {
+      throw new AppError('You can only view salary structures for employees in your department', 403, 'FORBIDDEN');
+    }
+  }
   const structure = await SalaryStructure.findOne({ user: req.params.userId }).lean();
   res.json(structure || {
     user: req.params.userId,
@@ -35,6 +41,9 @@ const upsertSalaryStructure = asyncHandler(async (req, res) => {
   validators.objectId(req.body.userId, 'user id');
   const user = await User.findOne({ _id: req.body.userId, deletedAt: null });
   if (!user) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+  if (req.user?.dataScope === 'department' && req.user.department && user.department !== req.user.department) {
+    throw new AppError('You can only update salary structures for employees in your department', 403, 'FORBIDDEN');
+  }
 
   const values = pick(req.body, MONEY_FIELDS);
   MONEY_FIELDS.forEach((field) => {

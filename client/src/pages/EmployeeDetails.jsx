@@ -26,7 +26,6 @@ import {
   Moon,
   Phone,
   Power,
-  RotateCcw,
   ShieldAlert,
   Store,
   Sun,
@@ -130,6 +129,7 @@ const getStatusBadge = (emp) => {
 const EmployeeDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [now] = useState(() => Date.now());
   const [employee, setEmployee] = useState(null);
   const [shifts, setShifts] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -386,7 +386,7 @@ const EmployeeDetails = () => {
   const isProbation = employee?.employmentType === 'Probation' || employee?.probationStatus === 'In Probation';
   const probationStart = employee?.probationStartDate || employee?.joiningDate;
   const daysInProbation = probationStart
-    ? Math.max(0, Math.floor((Date.now() - new Date(probationStart).getTime()) / (24 * 60 * 60 * 1000)))
+    ? Math.max(0, Math.floor((now - new Date(probationStart).getTime()) / (24 * 60 * 60 * 1000)))
     : 0;
 
   return (
@@ -1631,7 +1631,7 @@ const EmployeeDetails = () => {
               rows={3}
               value={offboardForm.reason}
               onChange={(e) => setOffboardForm({ ...offboardForm, reason: e.target.value })}
-              placeholder="Enter the specific reason why this employee is being deactivated…"
+              placeholder="Provide official deactivation reason (e.g. Resigned with notice, probation exit, contract completed)..."
               className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 resize-none"
             />
           </div>

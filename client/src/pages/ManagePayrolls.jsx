@@ -194,7 +194,7 @@ const ManagePayrolls = () => {
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search employee by name, ID..."
+              placeholder="Search by employee name, ID, or department..."
             />
             <input
               className="bg-white border border-slate-200/80 rounded-xl px-3 py-1.5 text-xs text-slate-700 focus:outline-none"
@@ -481,7 +481,7 @@ const ManagePayrolls = () => {
             <input
               value={edit.referenceNumber}
               onChange={(e) => setEdit({ ...edit, referenceNumber: e.target.value })}
-              placeholder="e.g. UTR / Transaction reference number"
+              placeholder="Enter bank reference or transaction ID"
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>

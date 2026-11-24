@@ -7,6 +7,9 @@ import {
   CircleX,
   Clock,
   Download,
+  ExternalLink,
+  Eye,
+  FileText,
   History,
   RotateCcw,
   Users,
@@ -42,6 +45,53 @@ const ManageLeaves = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const [docLoading, setDocLoading] = useState(false);
+
+  const downloadDoc = async (leave) => {
+    try {
+      const response = await api.get(`/api/leaves/${leave._id}/attachment`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', leave.attachment || `leave-document-${leave._id}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      feedback.error(getApiError(err, 'Unable to download leave document'));
+    }
+  };
+
+  const previewDocAttachment = async (leave) => {
+    setDocLoading(true);
+    try {
+      const response = await api.get(`/api/leaves/${leave._id}/attachment?inline=true`, { responseType: 'blob' });
+      const mime = response.data.type || '';
+      const isPdf = mime.includes('pdf') || String(leave.attachment || '').toLowerCase().endsWith('.pdf');
+      const isImage = mime.includes('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(leave.attachment || '');
+      const url = window.URL.createObjectURL(response.data);
+      setPreviewDoc({
+        url,
+        name: leave.attachment || 'leave-attachment',
+        isPdf,
+        isImage,
+        leave,
+      });
+    } catch (err) {
+      feedback.error(getApiError(err, 'Unable to load leave document preview'));
+    } finally {
+      setDocLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if (previewDoc?.url) {
+      window.URL.revokeObjectURL(previewDoc.url);
+    }
+    setPreviewDoc(null);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -304,7 +354,7 @@ const ManageLeaves = () => {
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search employee, leave type, reason..."
+              placeholder="Search by employee name, leave type, or reason..."
             />
             <select
               className="bg-white border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none cursor-pointer"
@@ -342,6 +392,7 @@ const ManageLeaves = () => {
                 <th className="py-2.5 px-2.5">TO</th>
                 <th className="py-2.5 px-2.5">DAYS</th>
                 <th className="py-2.5 px-2.5">REASON</th>
+                <th className="py-2.5 px-2.5">DOCUMENT</th>
                 <th className="py-2.5 px-2.5">STATUS</th>
                 {tab !== 'pending' && <th className="py-2.5 px-2.5">ADMIN REMARKS</th>}
                 <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
@@ -395,8 +446,36 @@ const ManageLeaves = () => {
                     <td className="py-2.5 px-2.5 font-semibold text-slate-800">{days}</td>
 
                     {/* Reason */}
-                    <td className="py-2.5 px-2.5 max-w-[200px] text-slate-600 truncate">
+                    <td className="py-2.5 px-2.5 max-w-[180px] text-slate-600 truncate" title={leave.reason}>
                       {leave.reason || '—'}
+                    </td>
+
+                    {/* Supporting Document */}
+                    <td className="py-2.5 px-2.5 whitespace-nowrap">
+                      {leave.attachment ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => previewDocAttachment(leave)}
+                            disabled={docLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 transition-colors text-xs font-semibold cursor-pointer shadow-2xs"
+                            title="View attached supporting document"
+                          >
+                            <Eye size={12} />
+                            <span>View Doc</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadDoc(leave)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                            title="Download document"
+                          >
+                            <Download size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 font-medium">No Document</span>
+                      )}
                     </td>
 
                     {/* Status Badge */}
@@ -482,11 +561,46 @@ const ManageLeaves = () => {
         }
       >
         {selected?.reason && (
-          <div className="mb-4 bg-slate-50 rounded-xl p-3 border border-slate-100">
+          <div className="mb-3.5 bg-slate-50 rounded-xl p-3 border border-slate-100">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
               Employee Reason
             </span>
             <p className="text-xs text-slate-700 m-0">{selected.reason}</p>
+          </div>
+        )}
+
+        {selected?.attachment && (
+          <div className="mb-4 bg-blue-50/70 rounded-xl p-3 border border-blue-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                <FileText size={16} />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 block">
+                  Supporting Document Attached
+                </span>
+                <span className="text-xs font-semibold text-slate-800 truncate block">
+                  {selected.attachment}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => previewDocAttachment(selected)}
+                disabled={docLoading}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white text-blue-700 border border-blue-200 text-xs font-semibold hover:bg-blue-50 transition-colors cursor-pointer shadow-2xs"
+              >
+                <Eye size={12} /> View
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadDoc(selected)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer shadow-2xs"
+              >
+                <Download size={12} /> Download
+              </button>
+            </div>
           </div>
         )}
 
@@ -497,10 +611,68 @@ const ManageLeaves = () => {
           <textarea
             value={response}
             onChange={(e) => setResponse(e.target.value)}
-            placeholder="Add a note or instruction for the employee..."
+            placeholder="Optional decision note, handover instructions, or reason for rejection..."
             rows={3}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
           />
+        </div>
+      </Modal>
+
+      {/* Document Preview Modal */}
+      <Modal
+        open={Boolean(previewDoc)}
+        title="Leave Supporting Document"
+        subtitle={previewDoc?.leave ? `${previewDoc.leave.user?.name} · ${previewDoc.leave.leaveType}` : ''}
+        onClose={closePreview}
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <a
+              href={previewDoc?.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800"
+            >
+              <ExternalLink size={13} /> Open in New Tab
+            </a>
+            <div className="flex items-center gap-2">
+              <ToolbarButton onClick={closePreview}>Close</ToolbarButton>
+              {previewDoc?.leave && (
+                <ToolbarButton primary icon={Download} onClick={() => downloadDoc(previewDoc.leave)}>
+                  Download
+                </ToolbarButton>
+              )}
+            </div>
+          </div>
+        }
+      >
+        <div className="max-h-[70vh] flex flex-col items-center justify-center overflow-auto rounded-xl bg-slate-100 p-2">
+          {previewDoc?.isPdf ? (
+            <iframe
+              src={previewDoc.url}
+              title="Leave Document PDF"
+              className="w-full h-[65vh] rounded-lg border border-slate-200 bg-white"
+            />
+          ) : previewDoc?.isImage ? (
+            <img
+              src={previewDoc.url}
+              alt="Leave Document"
+              className="max-h-[65vh] max-w-full object-contain rounded-lg shadow-sm"
+            />
+          ) : (
+            <div className="py-12 text-center space-y-3">
+              <FileText size={48} className="mx-auto text-slate-400" />
+              <p className="text-xs text-slate-600">Document preview not supported for this file type.</p>
+              {previewDoc?.leave && (
+                <button
+                  type="button"
+                  onClick={() => downloadDoc(previewDoc.leave)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-colors shadow-2xs"
+                >
+                  <Download size={13} /> Download File
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

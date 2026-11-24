@@ -48,13 +48,30 @@ const apiResponseMiddleware = (req, res, next) => {
   const originalJson = res.json.bind(res);
 
   res.json = (payload) => {
-    const isCompleteEnvelope = payload
+    if (payload?.__skipEnvelope) {
+      return originalJson(payload.data);
+    }
+
+    // Check if payload is already a standard envelope: { success: true/false, ... }
+    const isStandardEnvelope = payload
       && typeof payload === 'object'
       && typeof payload.success === 'boolean'
-      && Object.prototype.hasOwnProperty.call(payload, 'data')
-      && Object.prototype.hasOwnProperty.call(payload, 'timestamp');
-    if (payload?.__skipEnvelope || isCompleteEnvelope) {
-      return originalJson(payload?.__skipEnvelope ? payload.data : payload);
+      && Object.prototype.hasOwnProperty.call(payload, 'data');
+
+    if (isStandardEnvelope) {
+      return originalJson({
+        success: payload.success,
+        code: payload.code,
+        message: payload.message || (payload.success ? 'Request completed successfully' : 'Request failed'),
+        data: payload.data,
+        pagination: payload.pagination ?? null,
+        meta: {
+          requestId: req.id,
+          ...(payload.meta || {}),
+        },
+        errors: payload.errors ?? null,
+        timestamp: payload.timestamp || new Date().toISOString(),
+      });
     }
 
     const normalized = normalizePayload(payload);

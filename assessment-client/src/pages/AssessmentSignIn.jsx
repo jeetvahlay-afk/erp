@@ -48,8 +48,8 @@ const AssessmentSignIn = () => {
         setError('Unable to load candidate assessment record.');
       }
     } catch (err) {
-      if (err.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
-        const cData = err.response.data.data;
+      if (err.response?.data?.code === 'EMAIL_NOT_VERIFIED' || err.response?.status === 403) {
+        const cData = err.response?.data?.data;
         navigate('/assessment/verify', {
           state: {
             candidateCode: cData?.candidateCode,
@@ -103,13 +103,13 @@ const AssessmentSignIn = () => {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                Gmail Address
+                Gmail Address, Candidate Code, or Phone
               </label>
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. candidate@gmail.com"
+                placeholder="Enter email, candidate code, or phone number"
                 required
                 className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--erp-primary,#2563eb)]/20 focus:border-[var(--erp-primary,#2563eb)] transition"
               />

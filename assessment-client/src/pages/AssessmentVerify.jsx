@@ -1,33 +1,84 @@
-import React, { useState } from 'react';
-import { useLocation, useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import axios from '../api/client';
-import { Mail, CheckCircle2, AlertCircle, RefreshCw, ArrowRight } from 'lucide-react';
+import { Mail, CheckCircle2, AlertCircle, RefreshCw, ArrowRight, Copy, Check, Clipboard } from 'lucide-react';
 import { AssessmentPortalHeader, AssessmentWatermark } from './AssessmentPortalHeader';
 
 const AssessmentVerify = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const stateData = location.state || {};
+
+  const urlEmail = searchParams.get('email') || '';
+  const urlCandidateCode = searchParams.get('candidateCode') || '';
 
   const storedCode = sessionStorage.getItem('assessment_candidate_code') || '';
   const storedEmail = sessionStorage.getItem('assessment_candidate_email') || '';
   const storedLocation = sessionStorage.getItem('assessment_drive_location') || 'Ahmedabad';
 
-  const [candidateCode, setCandidateCode] = useState(stateData.candidateCode || storedCode);
-  const [email, setEmail] = useState(stateData.email || storedEmail);
+  const initialCode = urlCandidateCode || stateData.candidateCode || storedCode;
+  const initialEmail = urlEmail || stateData.email || storedEmail;
+
+  const [candidateCode, setCandidateCode] = useState(initialCode);
+  const [email, setEmail] = useState(initialEmail);
   const [driveLocation, setDriveLocation] = useState(stateData.driveLocation || storedLocation);
-  const [otp, setOtp] = useState(stateData.devOtp || '');
+  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
+  const [pastedStatus, setPastedStatus] = useState(false);
+
   const [infoMessage, setInfoMessage] = useState(
-    stateData.devOtp
-      ? `A 6-digit confirmation code was sent to ${stateData.email || storedEmail || 'your Gmail'}. (Dev code: ${stateData.devOtp})`
-      : (stateData.email || storedEmail)
-      ? `A 6-digit confirmation code was sent to ${stateData.email || storedEmail}.`
+    initialEmail
+      ? `A 6-digit verification code was sent to ${initialEmail}.`
       : ''
   );
   const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+
+  // Sync state if URL params change
+  useEffect(() => {
+    if (urlEmail && !email) setEmail(urlEmail);
+    if (urlCandidateCode && !candidateCode) setCandidateCode(urlCandidateCode);
+  }, [urlEmail, urlCandidateCode]);
+
+  // Robust clipboard copy with fallback
+  const copyCode = async (text) => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard copy failed:', err);
+    }
+  };
+
+  // Robust clipboard paste with automatic formatting/cleaning
+  const pasteCode = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const cleaned = String(text || '').replace(/\D/g, '').slice(0, 6);
+      if (cleaned) {
+        setOtp(cleaned);
+        setPastedStatus(true);
+        setTimeout(() => setPastedStatus(false), 2000);
+      }
+    } catch (err) {
+      console.warn('Clipboard read failed:', err);
+    }
+  };
 
   const handleVerify = async (e) => {
     e.preventDefault();
@@ -40,7 +91,7 @@ const AssessmentVerify = () => {
       return setError('Please provide your registered Gmail address.');
     }
 
-    const cleanOtp = String(otp).trim();
+    const cleanOtp = String(otp).replace(/\D/g, '').trim();
     if (!cleanOtp || cleanOtp.length !== 6) {
       return setError('Please enter the 6-digit verification code.');
     }
@@ -53,14 +104,28 @@ const AssessmentVerify = () => {
         otp: cleanOtp,
       });
 
-      if (res.data?.success) {
+      const isSuccess =
+        res.data?.success === true ||
+        res.data?.isEmailVerified === true ||
+        res.data?.data?.isEmailVerified === true ||
+        res.status === 200;
+
+      if (isSuccess) {
         setVerifiedSuccess(true);
+        const resolvedCode =
+          res.data?.data?.candidateCode ||
+          res.data?.candidateCode ||
+          targetCode;
+
+        sessionStorage.setItem('assessment_candidate_code', resolvedCode);
+        sessionStorage.setItem('assessment_candidate_verified', 'true');
+
         // Step 2 complete -> proceed to Step 3: Assessment Desk Sign In
         setTimeout(() => {
           navigate('/assessment/signin', {
             state: {
               email: targetEmail,
-              candidateCode: res.data?.data?.data?.candidateCode || res.data?.data?.candidateCode || targetCode,
+              candidateCode: resolvedCode,
               verified: true,
             },
           });
@@ -86,15 +151,12 @@ const AssessmentVerify = () => {
 
     try {
       setResending(true);
-      const res = await axios.post('/api/assessment/resend-otp', {
+      await axios.post('/api/assessment/resend-otp', {
         candidateCode: targetCode,
         email: targetEmail,
       });
       setInfoMessage('A new verification code has been sent to your Gmail address.');
-      const otpVal = res.data?.data?.data?.devOtp || res.data?.data?.devOtp;
-      if (otpVal) {
-        setOtp(otpVal);
-      }
+      setOtp('');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to resend code. Please try again.');
     } finally {
@@ -179,16 +241,33 @@ const AssessmentVerify = () => {
               )}
 
               <form onSubmit={handleVerify} className="space-y-4">
-                <div>
+                <div className="relative">
                   <input
                     type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     maxLength={6}
                     value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const text = (e.clipboardData || window.clipboardData).getData('text');
+                      const clean = String(text || '').replace(/\D/g, '').slice(0, 6);
+                      if (clean) setOtp(clean);
+                    }}
                     placeholder="Enter 6-digit code"
-                    className="w-full text-center font-mono text-2xl tracking-[0.5em] px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:border-[var(--erp-primary,#2563eb)] focus:ring-2 focus:ring-[var(--erp-primary,#2563eb)]/20 transition"
+                    className="w-full text-center font-mono text-2xl tracking-[0.5em] px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:border-[var(--erp-primary,#2563eb)] focus:ring-2 focus:ring-[var(--erp-primary,#2563eb)]/20 transition pr-20"
                     autoFocus
                   />
+                  <button
+                    type="button"
+                    onClick={pasteCode}
+                    title="Paste code from clipboard"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold px-2.5 py-1 rounded-md text-slate-500 hover:text-blue-600 hover:bg-slate-100 flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <Clipboard size={13} />
+                    <span>{pastedStatus ? 'Pasted!' : 'Paste'}</span>
+                  </button>
                 </div>
 
                 <button

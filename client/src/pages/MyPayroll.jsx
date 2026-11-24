@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
 import { downloadCsv } from '../lib/export';
+import { useAuth } from '../context/AuthContext';
+import SalarySlipModal from '../components/SalarySlipModal';
 import {
   EmptyState,
   ErrorState,
@@ -30,6 +32,7 @@ const totalValues = (values = {}) =>
   Object.values(values).reduce((total, value) => total + Number(value || 0), 0);
 
 const MyPayroll = () => {
+  const { user: authUser } = useAuth();
   const [records, setRecords] = useState([]);
   const [balances, setBalances] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +40,7 @@ const MyPayroll = () => {
   const [monthFilter, setMonthFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [expandedId, setExpandedId] = useState(null);
+  const [slipRecord, setSlipRecord] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -249,12 +253,13 @@ const MyPayroll = () => {
                 <th className="py-2.5 px-2.5">STATUS</th>
                 <th className="py-2.5 px-2.5">PAYMENT DATE</th>
                 <th className="py-2.5 px-2.5">REFERENCE</th>
-                <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">DETAILS</th>
+                <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTIONS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {filteredRecords.map((record) => {
                 const isExpanded = expandedId === record._id;
+                const isPaid = record.paymentStatus === 'paid';
                 return (
                   <Fragment key={record._id}>
                     <tr className="hover:bg-slate-50/80 transition-colors">
@@ -291,56 +296,91 @@ const MyPayroll = () => {
                       <td className="py-2.5 px-2.5 text-slate-500 whitespace-nowrap">
                         {formatDate(record.paymentDate)}
                       </td>
-                      <td className="py-2.5 px-2.5 text-slate-600">{record.referenceNumber || '—'}</td>
+                      <td className="py-2.5 px-2.5 text-slate-600 font-mono text-[11px]">{record.referenceNumber || '—'}</td>
                       <td className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(isExpanded ? null : record._id)}
-                          className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                        >
-                          <span>{isExpanded ? 'Hide' : 'View'}</span>
-                          {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isPaid && (
+                            <button
+                              type="button"
+                              onClick={() => setSlipRecord(record)}
+                              title="Generate Salary Slip"
+                              className="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <Printer size={12} className="text-blue-600" />
+                              <span className="hidden sm:inline">Salary Slip</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(isExpanded ? null : record._id)}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <span>{isExpanded ? 'Hide' : 'View'}</span>
+                            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {isExpanded && (
                       <tr className="bg-slate-50/60">
                         <td colSpan={9} className="py-4 px-6">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-4 rounded-xl border border-slate-200/80">
-                            <div>
-                              <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block mb-2">
-                                Earnings Breakdown
-                              </span>
-                              <div className="space-y-1.5 text-xs text-slate-600">
-                                <div className="flex justify-between">
-                                  <span>Basic Salary:</span>
-                                  <strong>{formatCurrency(record.baseSalary)}</strong>
+                          <div className="bg-white p-4.5 rounded-xl border border-slate-200/80 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block mb-2">
+                                  Earnings Breakdown
+                                </span>
+                                <div className="space-y-1.5 text-xs text-slate-600">
+                                  <div className="flex justify-between">
+                                    <span>Basic Salary:</span>
+                                    <strong>{formatCurrency(record.baseSalary)}</strong>
+                                  </div>
+                                  {Object.entries(record.allowances || {}).map(([key, val]) => (
+                                    <div key={key} className="flex justify-between">
+                                      <span className="capitalize">{key}:</span>
+                                      <strong className="text-emerald-600">
+                                        +{formatCurrency(val)}
+                                      </strong>
+                                    </div>
+                                  ))}
                                 </div>
-                                {Object.entries(record.allowances || {}).map(([key, val]) => (
-                                  <div key={key} className="flex justify-between">
-                                    <span className="capitalize">{key}:</span>
-                                    <strong className="text-emerald-600">
-                                      +{formatCurrency(val)}
-                                    </strong>
-                                  </div>
-                                ))}
+                              </div>
+                              <div>
+                                <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block mb-2">
+                                  Deductions Breakdown
+                                </span>
+                                <div className="space-y-1.5 text-xs text-slate-600">
+                                  {Object.entries(record.deductions || {}).map(([key, val]) => (
+                                    <div key={key} className="flex justify-between">
+                                      <span className="capitalize">{key}:</span>
+                                      <strong className="text-rose-600">
+                                        −{formatCurrency(val)}
+                                      </strong>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                            <div>
-                              <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block mb-2">
-                                Deductions Breakdown
-                              </span>
-                              <div className="space-y-1.5 text-xs text-slate-600">
-                                {Object.entries(record.deductions || {}).map(([key, val]) => (
-                                  <div key={key} className="flex justify-between">
-                                    <span className="capitalize">{key}:</span>
-                                    <strong className="text-rose-600">
-                                      −{formatCurrency(val)}
-                                    </strong>
-                                  </div>
-                                ))}
+
+                            {/* Action footer inside breakdown */}
+                            {isPaid && (
+                              <div className="pt-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                                <div className="text-xs text-slate-500">
+                                  Disbursement completed on <strong className="text-slate-700">{formatDate(record.paymentDate)}</strong>
+                                  {record.referenceNumber && (
+                                    <span> &bull; Ref: <strong className="font-mono text-slate-800">{record.referenceNumber}</strong></span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setSlipRecord(record)}
+                                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                                >
+                                  <Printer size={13} />
+                                  <span>Generate Salary Slip</span>
+                                </button>
                               </div>
-                            </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -357,6 +397,35 @@ const MyPayroll = () => {
           />
         )}
       </TableShell>
+
+      {/* Salary Slip Modal */}
+      {slipRecord && (
+        <SalarySlipModal
+          open={Boolean(slipRecord)}
+          onClose={() => setSlipRecord(null)}
+          employee={
+            slipRecord.user && typeof slipRecord.user === 'object'
+              ? { ...authUser, ...slipRecord.user }
+              : authUser || { name: 'Employee' }
+          }
+          structure={{
+            month: slipRecord.month,
+            baseSalary: slipRecord.baseSalary || 0,
+            hra: slipRecord.allowances?.housing || 0,
+            transportAllowance: slipRecord.allowances?.transport || 0,
+            securityAllowance: 0,
+            otherAllowances:
+              (slipRecord.allowances?.bonus || 0) + (slipRecord.allowances?.other || 0),
+            pfDeduction: slipRecord.deductions?.pf || 0,
+            taxDeduction: slipRecord.deductions?.tax || 0,
+            securityDeposit: slipRecord.deductions?.securityDeposit || 0,
+            otherDeductions:
+              (slipRecord.deductions?.insurance || 0) +
+              (slipRecord.deductions?.unpaidLeave || 0) +
+              (slipRecord.deductions?.other || 0),
+          }}
+        />
+      )}
     </div>
   );
 };

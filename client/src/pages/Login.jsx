@@ -136,7 +136,7 @@ const Login = () => {
                   required
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="Example@Gmail.Com"
+                  placeholder="Email address or username"
                   className="erp-auth-input"
                 />
               </div>
@@ -150,7 +150,7 @@ const Login = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder="Enter your account password"
                   className="erp-auth-input pr-8 tracking-widest"
                 />
                 <button

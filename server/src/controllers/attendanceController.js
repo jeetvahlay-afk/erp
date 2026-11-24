@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Attendance = require('../models/Attendance');
 const BreakLog = require('../models/BreakLog');
 const User = require('../models/User');
+const RecruitmentManagement = require('../models/RecruitmentManagement');
 const Settings = require('../models/Settings');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
@@ -9,6 +10,7 @@ const validators = require('../validation/validators');
 const { startOfLogicalShiftDay, logicalShiftWindow, getISTComponents, createFromIST } = require('../utils/date');
 const { writeAuditLog } = require('../services/auditService');
 const { dispatchNotifications } = require('../services/notificationService');
+const { convertCandidateToProbationEmployee } = require('../services/trainingMilestoneService');
 
 const resolveShiftDetails = async (user, date = new Date()) => {
   let shift = null;
@@ -79,7 +81,7 @@ const resolveShiftDetails = async (user, date = new Date()) => {
   };
 };
 
-const autoResolveMissingPunches = async (req) => {
+const autoResolveMissingPunches = async (req = { ip: '127.0.0.1', userAgent: 'scheduler-worker' }) => {
   try {
     const now = new Date();
     const todayLogical = startOfLogicalShiftDay(now);
@@ -175,7 +177,6 @@ const populateActiveHours = async (records) => {
 };
 
 const getMyAttendance = asyncHandler(async (req, res) => {
-  await autoResolveMissingPunches(req);
   const query = { user: req.user._id };
   if (req.query.from || req.query.to) {
     query.date = {};
@@ -194,14 +195,24 @@ const getMyAttendance = asyncHandler(async (req, res) => {
 });
 
 const getAllAttendance = asyncHandler(async (req, res) => {
-  await autoResolveMissingPunches(req);
   const query = {};
   if (req.query.from || req.query.to) {
     query.date = {};
     if (req.query.from) query.date.$gte = new Date(req.query.from);
     if (req.query.to) query.date.$lte = new Date(req.query.to);
   }
-  if (req.query.userId) {
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const deptUserIds = await User.find({ department: req.user.department, deletedAt: null }).distinct('_id');
+    if (req.query.userId) {
+      validators.objectId(req.query.userId, 'userId');
+      if (!deptUserIds.some((id) => String(id) === String(req.query.userId))) {
+        return res.json([]);
+      }
+      query.user = req.query.userId;
+    } else {
+      query.user = { $in: deptUserIds };
+    }
+  } else if (req.query.userId) {
     validators.objectId(req.query.userId, 'userId');
     query.user = req.query.userId;
   }
@@ -214,12 +225,15 @@ const getAllAttendance = asyncHandler(async (req, res) => {
 });
 
 const getLiveAttendance = asyncHandler(async (req, res) => {
-  await autoResolveMissingPunches(req);
   const now = new Date();
   const logicalDate = startOfLogicalShiftDay(now);
   const window = logicalShiftWindow(now);
+  const userFilter = { deletedAt: null, isActive: true };
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    userFilter.department = req.user.department;
+  }
   const [employees, attendance, breaks] = await Promise.all([
-    User.find({ deletedAt: null, isActive: true }).select('name email employeeId department designation profileImage shift').sort({ name: 1 }).lean(),
+    User.find(userFilter).select('name email employeeId department designation profileImage shift').sort({ name: 1 }).lean(),
     Attendance.find({ date: logicalDate }).lean(),
     BreakLog.find({ startTime: { $gte: window.start, $lte: window.end } }).sort({ startTime: 1 }).lean(),
   ]);
@@ -307,27 +321,36 @@ const punchInOut = asyncHandler(async (req, res) => {
       }
     }
 
+    const updatePayload = {
+      loginTime: now,
+      status,
+      isLateCheckIn,
+      lateMinutes,
+      isLatePenalty,
+      penaltyDeductionHours,
+      lateCountInMonth,
+    };
+    if (isLateCheckIn && lateReason) {
+      updatePayload.lateReason = lateReason;
+      updatePayload.lateReasonSubmittedAt = now;
+    }
+
     try {
       record = await Attendance.findOneAndUpdate(
         { user: req.user._id, date: logicalDate },
-        {
-          $setOnInsert: {
-            loginTime: now,
-            status,
-            isLateCheckIn,
-            lateMinutes,
-            isLatePenalty,
-            penaltyDeductionHours,
-            lateCountInMonth,
-            lateReason: isLateCheckIn ? lateReason : undefined,
-            lateReasonSubmittedAt: isLateCheckIn ? now : undefined,
-          },
-        },
+        { $set: updatePayload },
         { returnDocument: 'after', upsert: true, runValidators: true },
       );
     } catch (error) {
-      if (error.code === 11000) record = await Attendance.findOne({ user: req.user._id, date: logicalDate });
-      else throw error;
+      if (error.code === 11000) {
+        record = await Attendance.findOneAndUpdate(
+          { user: req.user._id, date: logicalDate },
+          { $set: updatePayload },
+          { returnDocument: 'after', runValidators: true },
+        );
+      } else {
+        throw error;
+      }
     }
     await writeAuditLog(req, 'attendance.punch_in', 'Attendance', record._id, {
       isLateCheckIn,
@@ -616,7 +639,58 @@ const extendShift = asyncHandler(async (req, res) => {
 
 const updateAttendanceRecord = asyncHandler(async (req, res) => {
   validators.objectId(req.params.id, 'attendance id');
-  const record = await Attendance.findById(req.params.id);
+  let record = await Attendance.findById(req.params.id);
+
+  if (!record) {
+    // Fallback: check if :id is a User ID
+    const targetUserDoc = await User.findById(req.params.id);
+    if (targetUserDoc) {
+      if (req.user?.dataScope === 'department' && req.user.department && targetUserDoc.department !== req.user.department) {
+        throw new AppError('You can only update attendance for employees in your department', 403, 'FORBIDDEN');
+      }
+      const targetDate = req.body.date ? startOfLogicalShiftDay(req.body.date) : startOfLogicalShiftDay(new Date());
+      record = await Attendance.findOne({ user: targetUserDoc._id, date: targetDate });
+      if (!record) {
+        record = new Attendance({
+          user: targetUserDoc._id,
+          date: targetDate,
+        });
+      }
+    } else {
+      // Check if :id is a Trainee Candidate
+      const candidate = await RecruitmentManagement.findById(req.params.id);
+      if (candidate) {
+        if (req.user?.dataScope === 'department' && req.user.department && candidate.department && candidate.department !== req.user.department) {
+          throw new AppError('You can only update attendance for trainees in your department', 403, 'FORBIDDEN');
+        }
+        let traineeUser = candidate.convertedUserId ? await User.findById(candidate.convertedUserId) : null;
+        if (!traineeUser && candidate.email) {
+          traineeUser = await User.findOne({ email: candidate.email.trim().toLowerCase(), deletedAt: null });
+        }
+        if (!traineeUser) {
+          traineeUser = await convertCandidateToProbationEmployee(candidate, req.user);
+        }
+        if (traineeUser) {
+          const targetDate = req.body.date ? startOfLogicalShiftDay(req.body.date) : startOfLogicalShiftDay(new Date());
+          record = await Attendance.findOne({ user: traineeUser._id, date: targetDate });
+          if (!record) {
+            record = new Attendance({
+              user: traineeUser._id,
+              date: targetDate,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  if (req.user?.dataScope === 'department' && req.user.department && record?.user) {
+    const recordUser = await User.findById(record.user).select('department');
+    if (recordUser && recordUser.department !== req.user.department) {
+      throw new AppError('You can only update attendance for employees in your department', 403, 'FORBIDDEN');
+    }
+  }
+
   if (!record) throw new AppError('Attendance record not found', 404, 'ATTENDANCE_NOT_FOUND');
 
   const previousStatus = record.status || 'None';
@@ -641,6 +715,24 @@ const updateAttendanceRecord = asyncHandler(async (req, res) => {
     validators.ensure(!logoutTime || !Number.isNaN(logoutTime.getTime()), 'Valid logoutTime is required', 'logoutTime');
     record.logoutTime = logoutTime;
   }
+
+  // Recalculate hours if check-in / check-out are set or default sensible hours for status
+  if (record.loginTime && record.logoutTime) {
+    const diffHours = Math.max(0, (record.logoutTime.getTime() - record.loginTime.getTime()) / 3600000);
+    record.grossHours = Math.round(diffHours * 100) / 100;
+    record.totalHours = Math.max(0, Math.round((diffHours - 0.5) * 100) / 100);
+  } else if (record.status === 'Present' && (!record.totalHours || record.totalHours === 0)) {
+    record.grossHours = 9;
+    record.totalHours = 8.5;
+  } else if (record.status === 'Half Day' && (!record.totalHours || record.totalHours === 0)) {
+    record.grossHours = 4.5;
+    record.totalHours = 4.5;
+  } else if (record.status === 'Late' && (!record.totalHours || record.totalHours === 0)) {
+    record.grossHours = 7.75;
+    record.totalHours = 7.5;
+    record.isLateCheckIn = true;
+  }
+
   if (record.status === 'Absent' && !req.body.loginTime && !req.body.logoutTime) {
     record.loginTime = null;
     record.logoutTime = null;
@@ -695,24 +787,66 @@ const updateAttendanceRecord = asyncHandler(async (req, res) => {
 });
 
 const manualUpdateAttendance = asyncHandler(async (req, res) => {
-  const { userId, date, status, loginTime, logoutTime, reason } = req.body;
-  validators.ensure(userId, 'Employee userId is required', 'userId');
+  const { userId, employeeId, date, status, loginTime, logoutTime, reason } = req.body;
+  const userIdentifier = userId || employeeId;
+  validators.ensure(userIdentifier, 'Employee userId or employeeId is required', 'userId');
   validators.ensure(date, 'Date is required', 'date');
 
   let targetUser = null;
-  if (mongoose.isValidObjectId(userId)) {
-    targetUser = await User.findById(userId);
+  if (mongoose.isValidObjectId(userIdentifier)) {
+    targetUser = await User.findById(userIdentifier);
   }
   if (!targetUser) {
-    targetUser = await User.findOne({ employeeId: userId, deletedAt: null });
+    targetUser = await User.findOne({ employeeId: userIdentifier, deletedAt: null });
   }
+  if (!targetUser) {
+    targetUser = await User.findOne({
+      $or: [
+        { employeeId: new RegExp(`^${userIdentifier}$`, 'i') },
+        { email: String(userIdentifier).toLowerCase() },
+      ],
+      deletedAt: null,
+    });
+  }
+
+  // Trainee candidates from RecruitmentManagement
+  if (!targetUser && mongoose.isValidObjectId(userIdentifier)) {
+    const candidate = await RecruitmentManagement.findById(userIdentifier);
+    if (candidate) {
+      if (candidate.convertedUserId) {
+        targetUser = await User.findById(candidate.convertedUserId);
+      }
+      if (!targetUser && candidate.email) {
+        targetUser = await User.findOne({ email: candidate.email.trim().toLowerCase(), deletedAt: null });
+      }
+      if (!targetUser && candidate.phoneNumber) {
+        targetUser = await User.findOne({ phone: candidate.phoneNumber.trim(), deletedAt: null });
+      }
+      if (!targetUser) {
+        targetUser = await convertCandidateToProbationEmployee(candidate, req.user);
+      }
+    }
+  }
+
   if (!targetUser) throw new AppError('Employee not found', 404, 'USER_NOT_FOUND');
 
-  const parsedDate = new Date(date);
-  validators.ensure(!Number.isNaN(parsedDate.getTime()), 'Valid date is required', 'date');
-  const logicalDate = startOfLogicalShiftDay(parsedDate);
+  if (req.user?.dataScope === 'department' && req.user.department && targetUser.department !== req.user.department) {
+    throw new AppError('You can only update attendance for employees in your department', 403, 'FORBIDDEN');
+  }
 
-  const validStatus = validators.enumValue(status, ['Present', 'Absent', 'Late', 'Half Day'], 'status');
+  const logicalDate = startOfLogicalShiftDay(date);
+  validators.ensure(logicalDate && !Number.isNaN(logicalDate.getTime()), 'Valid date is required', 'date');
+
+  let normalizedStatus = String(status || 'Present').trim();
+  const sLower = normalizedStatus.toLowerCase();
+  if (sLower === 'present' || sLower === 'p') normalizedStatus = 'Present';
+  else if (sLower === 'absent' || sLower === 'a') normalizedStatus = 'Absent';
+  else if (sLower === 'late' || sLower === 'l') normalizedStatus = 'Late';
+  else if (sLower.includes('half') || sLower === 'hd') normalizedStatus = 'Half Day';
+  else if (['off', 'weekend off', 'wo', 'scheduled'].includes(sLower)) normalizedStatus = 'Present';
+  else normalizedStatus = 'Present';
+
+  const validStatus = validators.enumValue(normalizedStatus, ['Present', 'Absent', 'Late', 'Half Day'], 'status');
 
   let record = await Attendance.findOne({ user: targetUser._id, date: logicalDate });
   const isNew = !record;
@@ -730,14 +864,44 @@ const manualUpdateAttendance = asyncHandler(async (req, res) => {
   record.manualOverrideReason = reason ? String(reason).trim() : 'Manual attendance update by admin';
   record.updatedBy = req.user._id;
 
+  const validDateOrNull = (val) => {
+    if (!val) return null;
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   if (loginTime !== undefined) {
-    record.loginTime = loginTime ? new Date(loginTime) : null;
+    record.loginTime = validDateOrNull(loginTime);
   }
   if (logoutTime !== undefined) {
-    record.logoutTime = logoutTime ? new Date(logoutTime) : null;
+    record.logoutTime = validDateOrNull(logoutTime);
   }
 
-  if (validStatus === 'Absent' && !loginTime && !logoutTime) {
+  // Populate sensible defaults for check-in / check-out times and hours if none supplied
+  const istComponents = getISTComponents(logicalDate);
+  if (validStatus === 'Present') {
+    if (!record.loginTime && istComponents) {
+      record.loginTime = createFromIST(istComponents.year, istComponents.month, istComponents.date, 9, 30, 0, 0);
+    }
+    if (!record.logoutTime && istComponents) {
+      record.logoutTime = createFromIST(istComponents.year, istComponents.month, istComponents.date, 18, 30, 0, 0);
+    }
+    record.grossHours = 9;
+    record.totalHours = 8.5;
+  } else if (validStatus === 'Late') {
+    if (!record.loginTime && istComponents) {
+      record.loginTime = createFromIST(istComponents.year, istComponents.month, istComponents.date, 10, 45, 0, 0);
+    }
+    if (!record.logoutTime && istComponents) {
+      record.logoutTime = createFromIST(istComponents.year, istComponents.month, istComponents.date, 18, 30, 0, 0);
+    }
+    record.grossHours = 7.75;
+    record.totalHours = 7.5;
+    record.isLateCheckIn = true;
+  } else if (validStatus === 'Half Day') {
+    record.grossHours = 4.5;
+    record.totalHours = 4.5;
+  } else if (validStatus === 'Absent') {
     record.loginTime = null;
     record.logoutTime = null;
     record.totalHours = 0;
@@ -793,14 +957,24 @@ const manualUpdateAttendance = asyncHandler(async (req, res) => {
 
 const getUserAttendance = asyncHandler(async (req, res) => {
   let targetUserId = req.params.userId;
+  let targetUserDoc = null;
   if (!mongoose.isValidObjectId(targetUserId)) {
-    const user = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id');
-    if (user) {
-      targetUserId = user._id;
+    targetUserDoc = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id department');
+    if (targetUserDoc) {
+      targetUserId = targetUserDoc._id;
     } else {
       return res.json([]);
     }
+  } else if (req.user?.dataScope === 'department' && req.user.department) {
+    targetUserDoc = await User.findById(targetUserId).select('department');
   }
+
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    if (!targetUserDoc || targetUserDoc.department !== req.user.department) {
+      return res.json([]);
+    }
+  }
+
   const records = await Attendance.find({ user: targetUserId }).sort({ date: -1 }).lean();
   const populatedRecords = await populateActiveHours(records);
   res.json(populatedRecords);

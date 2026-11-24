@@ -186,12 +186,26 @@ const generatePayrollBatch = asyncHandler(async (req, res) => {
 
 const getAllPayroll = asyncHandler(async (req, res) => {
   const query = {};
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const deptUserIds = await User.find({ department: req.user.department, deletedAt: null }).distinct('_id');
+    if (req.query.userId) {
+      validators.objectId(req.query.userId, 'userId');
+      if (!deptUserIds.some((id) => String(id) === String(req.query.userId))) {
+        return res.json([]);
+      }
+      query.user = req.query.userId;
+    } else {
+      query.user = { $in: deptUserIds };
+    }
+  } else if (req.query.userId) {
+    validators.objectId(req.query.userId, 'userId');
+    query.user = req.query.userId;
+  }
   if (req.query.month) {
     if (!isIsoMonth(req.query.month)) throw new AppError('Month must use YYYY-MM format', 400, 'INVALID_MONTH');
     query.month = req.query.month;
   }
   if (req.query.paymentStatus) query.paymentStatus = req.query.paymentStatus;
-  if (req.query.userId) { validators.objectId(req.query.userId, 'userId'); query.user = req.query.userId; }
   const payrolls = await Payroll.find(query)
     .populate('user', 'name employeeId role department')
     .sort({ month: -1, createdAt: -1 })
@@ -203,6 +217,13 @@ const updatePayrollStatus = asyncHandler(async (req, res) => {
   validators.objectId(req.params.id, 'payroll id');
   const payroll = await Payroll.findById(req.params.id);
   if (!payroll) throw new AppError('Payroll record not found', 404, 'PAYROLL_NOT_FOUND');
+
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const targetUser = await User.findById(payroll.user).select('department');
+    if (!targetUser || targetUser.department !== req.user.department) {
+      throw new AppError('You can only update payroll records for employees in your department', 403, 'FORBIDDEN');
+    }
+  }
 
   if (req.body.paymentStatus) {
     payroll.paymentStatus = validators.enumValue(req.body.paymentStatus, ['unpaid', 'paid', 'processing'], 'paymentStatus');
@@ -235,7 +256,10 @@ const updatePayrollStatus = asyncHandler(async (req, res) => {
 });
 
 const getMyPayroll = asyncHandler(async (req, res) => {
-  const payrolls = await Payroll.find({ user: req.user._id }).sort({ month: -1 }).lean();
+  const payrolls = await Payroll.find({ user: req.user._id })
+    .populate('user', 'name employeeId role department designation pan')
+    .sort({ month: -1 })
+    .lean();
   res.json(payrolls);
 });
 

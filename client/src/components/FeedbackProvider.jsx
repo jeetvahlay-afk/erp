@@ -15,7 +15,7 @@ const ToastItem = ({ toast, onDismiss }) => {
   const duration = toast.duration || (toast.type === 'notification' ? 7000 : 4500);
   const timerRef = useRef(null);
   const remainingRef = useRef(duration);
-  const startTimeRef = useRef(Date.now());
+  const startTimeRef = useRef(0);
 
   const handleDismiss = () => {
     setIsExiting(true);
@@ -162,6 +162,8 @@ const ToastItem = ({ toast, onDismiss }) => {
 const FeedbackProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
   const [confirmation, setConfirmation] = useState(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     const handleFeedback = ({ detail }) => {
@@ -180,23 +182,96 @@ const FeedbackProvider = ({ children }) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   };
 
+  const dismissAll = () => {
+    setToasts([]);
+    setIsExpanded(false);
+  };
+
   const resolveConfirmation = (accepted) => {
     confirmation?.resolve(accepted);
     setConfirmation(null);
   };
 
+  const hasMultiple = toasts.length > 1;
+  const showExpanded = hasMultiple && (isExpanded || isHovered);
+  // In stacked mode, show latest on top, and at most 3 cards visible
+  const reversedToasts = [...toasts].reverse();
+
   return (
     <>
       {children}
-      {/* Top-Right Notification & Feedback Pop Container ("right upside") */}
-      <div
-        className="pointer-events-none fixed right-4 sm:right-6 top-4 sm:top-6 z-[99999] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2.5"
-        aria-live="polite"
-      >
-        {toasts.map((toast) => (
-          <ToastItem key={toast.id} toast={toast} onDismiss={dismissToast} />
-        ))}
-      </div>
+      {/* Top-Right Stacked Notification Container ("right upside") */}
+      {toasts.length > 0 && (
+        <div
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          className="fixed right-4 sm:right-6 top-4 sm:top-6 z-[99999] flex w-[min(24rem,calc(100vw-2rem))] flex-col transition-all duration-300"
+          aria-live="polite"
+        >
+          {/* Stack Management Header Bar when multiple notifications exist */}
+          {hasMultiple && (
+            <div className="pointer-events-auto mb-2 flex items-center justify-between rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 px-3 py-1.5 text-xs font-semibold shadow-lg shadow-slate-900/5 backdrop-blur-md transition-all">
+              <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                <span className="size-2 rounded-full bg-blue-600 animate-pulse" />
+                <strong className="font-bold text-blue-600 dark:text-blue-400">{toasts.length}</strong> notifications stacked
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExpanded((prev) => !prev)}
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                >
+                  {isExpanded ? 'Collapse' : 'Expand all'}
+                </button>
+                <span className="text-slate-300 dark:text-slate-700">|</span>
+                <button
+                  type="button"
+                  onClick={dismissAll}
+                  className="text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 cursor-pointer transition-colors"
+                >
+                  Dismiss all
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Stacked Cards Area */}
+          {showExpanded ? (
+            /* Expanded Mode: cleanly scrollable vertical list capped at 75vh */
+            <div className="flex max-h-[75vh] flex-col gap-2.5 overflow-y-auto pr-1">
+              {reversedToasts.map((toast) => (
+                <ToastItem key={toast.id} toast={toast} onDismiss={dismissToast} />
+              ))}
+            </div>
+          ) : (
+            /* Collapsed Stacked Mode: neatly stacked cards taking height of just 1 card + offset */
+            <div className="relative h-28 w-full">
+              {reversedToasts.slice(0, 3).map((toast, idx) => {
+                // idx 0 is top/newest, idx 1 is middle, idx 2 is bottom
+                const zIndex = 30 - idx * 10;
+                const translateY = idx * 8; // 0px, 8px, 16px
+                const scale = 1 - idx * 0.04; // 1, 0.96, 0.92
+                const opacity = 1 - idx * 0.15; // 1, 0.85, 0.70
+
+                return (
+                  <div
+                    key={toast.id}
+                    className="absolute inset-x-0 top-0 transition-all duration-300 ease-out"
+                    style={{
+                      zIndex,
+                      transform: `translateY(${translateY}px) scale(${scale})`,
+                      transformOrigin: 'top center',
+                      opacity,
+                    }}
+                  >
+                    <ToastItem toast={toast} onDismiss={dismissToast} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {confirmation && (
         <div className="fixed inset-0 z-[100000] grid place-items-center p-4" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">

@@ -1,15 +1,18 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Calendar,
+  Briefcase,
   CalendarDays,
   Download,
+  GraduationCap,
   IndianRupee,
   TimerReset,
+  UserCheck,
   UserPlus,
   Users,
 } from 'lucide-react';
 import useLiveData from '../hooks/useLiveData';
+import DashboardDateSelector from '../components/DashboardDateSelector';
 import {
   Avatar,
   ColumnChart,
@@ -25,7 +28,13 @@ import {
 
 const HRDashboard = () => {
   const navigate = useNavigate();
-  const { data, loading, error, refresh } = useLiveData('/api/dashboard/hr');
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const { data, loading, error, refresh } = useLiveData(
+    selectedDate ? `/api/dashboard/hr?date=${selectedDate}` : '/api/dashboard/hr'
+  );
 
   const attendanceDays = useMemo(() => {
     if (Array.isArray(data?.weeklyAttendance) && data.weeklyAttendance.length > 0) {
@@ -48,7 +57,11 @@ const HRDashboard = () => {
   const inactiveEmployees = Math.max(0, totalEmployees - activeEmployees);
   const activePercent = totalEmployees ? Math.round((activeEmployees / totalEmployees) * 100) : 0;
   const rec = data?.recruitment || {};
-  const recTotal = (rec.applied || 0) + (rec.shortlisted || 0) + (rec.interviewed || 0) + (rec.hired || 0);
+  const dailyCount = rec.daily ?? (rec.applied || 0);
+  const assessmentCount = rec.assessment || 0;
+  const interviewCount = rec.interview ?? rec.interviewed ?? 0;
+  const trainingCount = (rec.training || 0) + (rec.hired || 0);
+  const recTotal = dailyCount + assessmentCount + interviewCount + trainingCount;
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 space-y-4 sm:space-y-4.5 w-full max-w-[1920px] mx-auto text-slate-800 dark:text-slate-100 pb-10">
@@ -61,10 +74,7 @@ const HRDashboard = () => {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-          <div className="inline-flex items-center gap-1.5 bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 shadow-2xs">
-            <Calendar size={13} className="text-slate-400" />
-            <span>{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
-          </div>
+          <DashboardDateSelector value={selectedDate} onChange={setSelectedDate} />
 
           <button
             type="button"
@@ -73,16 +83,6 @@ const HRDashboard = () => {
           >
             <Download size={13} className="text-slate-400" />
             <span>Yearly Report</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate('/add-employee')}
-            className="inline-flex items-center gap-1.5 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-            style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
-          >
-            <UserPlus size={14} />
-            <span>Add Employee</span>
           </button>
         </div>
       </div>
@@ -297,15 +297,29 @@ const HRDashboard = () => {
             {data.lateArrivals?.length ? (
               <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                 {data.lateArrivals.map((row) => (
-                  <div className="py-2 flex items-center justify-between gap-3" key={row._id}>
-                    <div className="flex items-center gap-2 min-w-0">
+                  <div className="py-2.5 flex items-center justify-between gap-3" key={row._id}>
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <Avatar user={row.user} size="sm" />
                       <div className="min-w-0">
                         <strong className="text-slate-900 dark:text-white block truncate font-semibold text-xs">{row.user?.name}</strong>
                         <span className="text-[11px] text-slate-500 block truncate">{row.user?.department || 'Unassigned'}</span>
+                        {row.lateReason && (
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400 block truncate font-medium">
+                            Reason: {row.lateReason}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <time className="text-amber-600 font-semibold text-xs shrink-0">{formatTime(row.loginTime)}</time>
+                    <div className="flex flex-col items-end shrink-0">
+                      <time className="text-amber-600 dark:text-amber-400 font-semibold text-xs">{formatTime(row.loginTime)}</time>
+                      <span className={`text-[9.5px] px-1.5 py-0.2 rounded font-bold mt-0.5 ${
+                        row.status === 'Half Day'
+                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60'
+                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60'
+                      }`}>
+                        {row.status === 'Half Day' ? 'Half Day' : 'Late'}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -326,7 +340,7 @@ const HRDashboard = () => {
               <button
                 type="button"
                 onClick={() => navigate('/manage-interviews')}
-                className="text-xs font-semibold transition-colors cursor-pointer"
+                className="text-xs font-semibold transition-colors cursor-pointer hover:underline"
                 style={{ color: 'var(--erp-primary, #2563eb)' }}
               >
                 Manage
@@ -337,16 +351,22 @@ const HRDashboard = () => {
               <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
                 {recTotal > 0 ? (
                   <>
-                    {rec.applied > 0 && (
+                    {dailyCount > 0 && (
                       <div
-                        style={{ flex: rec.applied, backgroundColor: 'var(--erp-primary, #2563eb)' }}
+                        style={{ flex: dailyCount, backgroundColor: 'var(--erp-primary, #2563eb)' }}
                         className="h-full"
-                        title={`Applied: ${rec.applied}`}
+                        title={`Daily Intake: ${dailyCount}`}
                       />
                     )}
-                    {rec.shortlisted > 0 && <div style={{ flex: rec.shortlisted }} className="bg-amber-500 h-full" title={`Shortlisted: ${rec.shortlisted}`} />}
-                    {rec.interviewed > 0 && <div style={{ flex: rec.interviewed }} className="bg-indigo-500 h-full" title={`Interviewed: ${rec.interviewed}`} />}
-                    {rec.hired > 0 && <div style={{ flex: rec.hired }} className="bg-emerald-500 h-full" title={`Hired: ${rec.hired}`} />}
+                    {assessmentCount > 0 && (
+                      <div style={{ flex: assessmentCount }} className="bg-amber-500 h-full" title={`Assessment: ${assessmentCount}`} />
+                    )}
+                    {interviewCount > 0 && (
+                      <div style={{ flex: interviewCount }} className="bg-purple-600 h-full" title={`Interview: ${interviewCount}`} />
+                    )}
+                    {trainingCount > 0 && (
+                      <div style={{ flex: trainingCount }} className="bg-emerald-500 h-full" title={`Training: ${trainingCount}`} />
+                    )}
                   </>
                 ) : (
                   <div className="w-full bg-slate-200 dark:bg-slate-700 h-full" />
@@ -354,33 +374,114 @@ const HRDashboard = () => {
               </div>
 
               <div className="flex gap-1.5 flex-wrap text-[11px]">
-                <span
-                  className="px-2 py-0.5 rounded-md font-medium"
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=daily')}
+                  className="px-2 py-0.5 rounded-md font-medium cursor-pointer transition-transform hover:scale-105 active:scale-95"
                   style={{
                     backgroundColor: 'color-mix(in srgb, var(--erp-primary, #2563eb) 12%, transparent)',
                     color: 'var(--erp-primary, #2563eb)',
                   }}
+                  title="Daily Candidate Intake"
                 >
-                  Applied: {formatNumber(rec.applied)}
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-medium">Shortlisted: {formatNumber(rec.shortlisted)}</span>
-                <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 font-medium">Interviewed: {formatNumber(rec.interviewed)}</span>
-                <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-medium">Hired: {formatNumber(rec.hired)}</span>
+                  Daily: {formatNumber(dailyCount)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=assessment')}
+                  className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-medium cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                  title="Assessment Update"
+                >
+                  Assessment: {formatNumber(assessmentCount)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=interview')}
+                  className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 font-medium cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                  title="Interview Rounds"
+                >
+                  Interview: {formatNumber(interviewCount)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=training')}
+                  className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-medium cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                  title="Training & Onboarding"
+                >
+                  Training: {formatNumber(trainingCount)}
+                </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 pt-1 text-center text-xs">
-                <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg">
-                  <span className="text-[11px] text-slate-500 block">Applied</span>
-                  <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white block mt-0.5">{formatNumber(rec.applied)}</strong>
-                </div>
-                <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg">
-                  <span className="text-[11px] text-slate-500 block">Interviewed</span>
-                  <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white block mt-0.5">{formatNumber(rec.interviewed)}</strong>
-                </div>
-                <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg">
-                  <span className="text-[11px] text-slate-500 block">Hired</span>
-                  <strong className="text-xs sm:text-sm font-bold text-emerald-600 block mt-0.5">{formatNumber(rec.hired)}</strong>
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center text-xs">
+                {/* 1. Daily Candidate Update */}
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=daily')}
+                  className="p-2 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 border border-blue-100 dark:border-blue-900/40 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                  title="View Daily Candidate Update"
+                >
+                  <div
+                    className="w-5 h-5 rounded-md flex items-center justify-center mb-0.5"
+                    style={{
+                      backgroundColor: 'color-mix(in srgb, var(--erp-primary, #2563eb) 18%, transparent)',
+                      color: 'var(--erp-primary, #2563eb)',
+                    }}
+                  >
+                    <Users size={12} />
+                  </div>
+                  <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white block mt-0.5">
+                    {formatNumber(dailyCount)}
+                  </strong>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">Daily</span>
+                </button>
+
+                {/* 2. Assessment Update */}
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=assessment')}
+                  className="p-2 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 border border-amber-100 dark:border-amber-900/40 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                  title="View Assessment Candidates"
+                >
+                  <div className="w-5 h-5 rounded-md bg-amber-100 text-amber-600 flex items-center justify-center mb-0.5">
+                    <UserCheck size={12} />
+                  </div>
+                  <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white block mt-0.5">
+                    {formatNumber(assessmentCount)}
+                  </strong>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">Assessment</span>
+                </button>
+
+                {/* 3. Interview Rounds */}
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=interview')}
+                  className="p-2 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100/60 dark:hover:bg-purple-900/40 border border-purple-100 dark:border-purple-900/40 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                  title="View Interview Rounds"
+                >
+                  <div className="w-5 h-5 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center mb-0.5">
+                    <Briefcase size={12} />
+                  </div>
+                  <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white block mt-0.5">
+                    {formatNumber(interviewCount)}
+                  </strong>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">Interview</span>
+                </button>
+
+                {/* 4. Training Candidates */}
+                <button
+                  type="button"
+                  onClick={() => navigate('/manage-interviews?section=training')}
+                  className="p-2 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 border border-emerald-100 dark:border-emerald-900/40 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                  title="View Training & Hired Trainees"
+                >
+                  <div className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center mb-0.5">
+                    <GraduationCap size={12} />
+                  </div>
+                  <strong className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                    {formatNumber(trainingCount)}
+                  </strong>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">Training</span>
+                </button>
               </div>
             </div>
           </div>
@@ -396,8 +497,8 @@ const HRDashboard = () => {
               </div>
               <button
                 type="button"
-                onClick={() => navigate('/manage-interviews')}
-                className="text-xs font-semibold transition-colors cursor-pointer"
+                onClick={() => navigate('/manage-interviews?section=daily')}
+                className="text-xs font-semibold transition-colors cursor-pointer hover:underline"
                 style={{ color: 'var(--erp-primary, #2563eb)' }}
               >
                 View All
@@ -407,23 +508,45 @@ const HRDashboard = () => {
             {data.upcomingInterviews?.length ? (
               <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                 {data.upcomingInterviews.map((item) => (
-                  <div className="py-2 flex items-center justify-between gap-3" key={item._id}>
-                    <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className="py-2.5 px-1.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-lg transition-colors cursor-pointer"
+                    key={item._id}
+                    onClick={() => navigate('/manage-interviews?section=daily')}
+                    title={`Click to view candidate ${item.candidateName}`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <div
-                        className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                         style={{
                           backgroundColor: 'color-mix(in srgb, var(--erp-primary, #2563eb) 12%, transparent)',
                           color: 'var(--erp-primary, #2563eb)',
                         }}
                       >
-                        <CalendarDays size={14} />
+                        <CalendarDays size={15} />
                       </div>
                       <div className="min-w-0">
                         <strong className="text-slate-900 dark:text-white block truncate font-semibold text-xs">{item.candidateName}</strong>
-                        <span className="text-[11px] text-slate-500 block truncate">{item.candidatePost || 'Candidate'}</span>
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 truncate mt-0.5">
+                          <span className="truncate">{item.candidatePost || 'Candidate'}</span>
+                          {item.branch && (
+                            <>
+                              <span className="text-slate-300 dark:text-slate-600">•</span>
+                              <span className="text-[10px] text-slate-400">{item.branch}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <time className="text-slate-600 dark:text-slate-400 font-semibold text-xs shrink-0">{formatDate(item.interviewDate)}</time>
+                    <div className="text-right shrink-0">
+                      <time className="text-slate-700 dark:text-slate-300 font-semibold text-xs block">
+                        {formatDate(item.interviewDate)}
+                      </time>
+                      {item.interviewTime && (
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium block">
+                          {item.interviewTime}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

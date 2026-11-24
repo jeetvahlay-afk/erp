@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle,
   Bell,
+  Briefcase,
   Cake,
   CalendarCheck,
   CalendarDays,
@@ -17,8 +17,10 @@ import {
   Eye,
   EyeOff,
   FileCheck2,
+  FileSignature,
   FileText,
   FolderOpen,
+  GraduationCap,
   LayoutDashboard,
   LayoutGrid,
   Loader2,
@@ -29,7 +31,6 @@ import {
   Menu,
   Moon,
   Palette,
-  PartyPopper,
   Receipt,
   Route,
   Search,
@@ -132,9 +133,23 @@ const Layout = () => {
   const [selectedBirthdayPerson, setSelectedBirthdayPerson] = useState(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [dashboardsOpen, setDashboardsOpen] = useState(true);
+  const [recruitmentOpen, setRecruitmentOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const isRecruitmentActive = useMemo(() => {
+    return (
+      location.pathname === '/manage-interviews' ||
+      location.pathname.startsWith('/manage-agreements')
+    );
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isRecruitmentActive) {
+      setRecruitmentOpen(true);
+    }
+  }, [isRecruitmentActive]);
 
   const [shiftMenuOpen, setShiftMenuOpen] = useState(false);
   const [dailyBreaks, setDailyBreaks] = useState([]);
@@ -276,15 +291,18 @@ const Layout = () => {
       const currentMonth = now.getMonth();
       const currentDate = now.getDate();
 
-      // Find person whose birthday is today!
+      // Find person whose birthday is today! (Check both local and UTC date to prevent timezone shifts)
       const todayCelebrant = items.find((item) => {
-        const d = item.nextBirthday ? new Date(item.nextBirthday) : (item.dob ? new Date(item.dob) : null);
-        return d && d.getMonth() === currentMonth && d.getDate() === currentDate;
+        if (!item.dob && !item.nextBirthday) return false;
+        const d = new Date(item.nextBirthday || item.dob);
+        if (Number.isNaN(d.getTime())) return false;
+        const isMatchLocal = d.getMonth() === currentMonth && d.getDate() === currentDate;
+        const isMatchUTC = d.getUTCMonth() === currentMonth && d.getUTCDate() === currentDate;
+        return isMatchLocal || isMatchUTC;
       });
 
-      // Select today's celebrant, or the upcoming birthday employee
-      const celebrant = todayCelebrant || items[0] || null;
-      setBirthdayCelebrant(celebrant);
+      // ONLY display the birthday celebration pill when someone actually has a birthday TODAY
+      setBirthdayCelebrant(todayCelebrant || null);
     } catch {
       // silently ignore
     }
@@ -918,7 +936,7 @@ const Layout = () => {
                   setLateReasonText(e.target.value);
                   if (lateReasonError) setLateReasonError('');
                 }}
-                placeholder="Explain the detailed reason why you are late today (minimum 10 characters)..."
+                placeholder="Explain specific reason for late check-in (e.g. Vehicle breakdown, transit delay, medical emergency)..."
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 resize-none transition-all"
               />
               <div className="flex items-center justify-between mt-1 text-[11px]">
@@ -1029,7 +1047,7 @@ const Layout = () => {
                     type={showBreakPassword ? 'text' : 'password'}
                     value={breakPassword}
                     onChange={(e) => setBreakPassword(e.target.value)}
-                    placeholder="Enter your login password..."
+                    placeholder="Enter your account password to authorize break"
                     className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none"
                     autoFocus
                     autoComplete="current-password"
@@ -1145,7 +1163,7 @@ const Layout = () => {
                       setBreakOutPassword(e.target.value);
                       if (breakOutPasswordError) setBreakOutPasswordError('');
                     }}
-                    placeholder="Enter your login password"
+                    placeholder="Enter your account password to resume shift"
                     className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none"
                     autoFocus
                     autoComplete="current-password"
@@ -1449,13 +1467,104 @@ const Layout = () => {
                   )}
 
                   {showRoute('/manage-interviews', canRecruit) && (
-                    <NavLink
-                      to="/manage-interviews"
-                      className={({ isActive }) => `erp-sb-link ${isActive ? 'active' : ''}`}
-                    >
-                      <UserPlus size={16} />
-                      <span>Recruitment Management</span>
-                    </NavLink>
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => setRecruitmentOpen((prev) => !prev)}
+                        className={`erp-sb-dropdown-btn ${
+                          isRecruitmentActive ? 'text-white font-semibold' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <UserPlus size={16} />
+                          <span className="font-medium">Recruitment Management</span>
+                        </div>
+                        <ChevronDown
+                          size={14}
+                          className={`transition-transform duration-200 ${recruitmentOpen ? '' : '-rotate-90'}`}
+                        />
+                      </button>
+
+                      {recruitmentOpen && (
+                        <div className="pl-1 space-y-1 pt-0.5">
+                          <NavLink
+                            to="/manage-interviews?section=daily"
+                            className={() =>
+                              `erp-sb-link ${
+                                location.pathname === '/manage-interviews' &&
+                                (!location.search || location.search.includes('section=daily'))
+                                  ? 'active'
+                                  : ''
+                              }`
+                            }
+                          >
+                            <UserPlus size={16} />
+                            <span>Daily Candidates</span>
+                          </NavLink>
+
+                          <NavLink
+                            to="/manage-interviews?section=interview"
+                            className={() =>
+                              `erp-sb-link ${
+                                location.pathname === '/manage-interviews' &&
+                                location.search.includes('section=interview')
+                                  ? 'active'
+                                  : ''
+                              }`
+                            }
+                          >
+                            <Briefcase size={16} />
+                            <span>Candidate Pipeline</span>
+                          </NavLink>
+
+                          <NavLink
+                            to="/manage-interviews?section=assessment"
+                            className={() =>
+                              `erp-sb-link ${
+                                location.pathname === '/manage-interviews' &&
+                                location.search.includes('section=assessment')
+                                  ? 'active'
+                                  : ''
+                              }`
+                            }
+                          >
+                            <FileCheck2 size={16} />
+                            <span>Candidate Assessment</span>
+                          </NavLink>
+
+                          <NavLink
+                            to="/manage-interviews?section=training"
+                            className={() =>
+                              `erp-sb-link ${
+                                location.pathname === '/manage-interviews' &&
+                                location.search.includes('section=training')
+                                  ? 'active'
+                                  : ''
+                              }`
+                            }
+                          >
+                            <GraduationCap size={16} />
+                            <span>Training Candidates</span>
+                          </NavLink>
+
+                          <NavLink
+                            to="/manage-interviews?section=agreements"
+                            className={() =>
+                              `erp-sb-link ${
+                                (location.pathname === '/manage-interviews' &&
+                                  location.search.includes('section=agreements')) ||
+                                location.pathname.startsWith('/manage-agreements')
+                                  ? 'active'
+                                  : ''
+                              }`
+                            }
+                          >
+                            <FileSignature size={16} />
+                            <span>Agreements & Joining</span>
+                          </NavLink>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {showRoute('/profile-requests', canEmployees) && (
@@ -1724,39 +1833,53 @@ const Layout = () => {
             height: 'var(--erp-navbar-height, 56px)',
             minHeight: 'var(--erp-navbar-height, 56px)',
           }}
-          className="erp-top-header bg-white dark:bg-[#111827] border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30 transition-all"
+          className="erp-top-header bg-white dark:bg-[#111827] border-b border-slate-200/80 dark:border-slate-800 px-2.5 sm:px-4 md:px-6 flex items-center justify-between shrink-0 z-30 transition-all gap-1.5 sm:gap-3"
         >
           {/* Left: Hamburger (Mobile only) & Search */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             <button
               type="button"
-              className="lg:hidden text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="lg:hidden text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
               onClick={() => setSidebarOpen((prev) => !prev)}
               aria-label="Toggle menu"
             >
               <Menu size={18} />
             </button>
 
-            {/* Global Search Bar with exact reference mockup placeholder */}
+            {/* Mobile Search Button (< sm) */}
+            <button
+              type="button"
+              className="sm:hidden text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+              onClick={() => {
+                setCommandOpen(true);
+                window.setTimeout(() => commandInputRef.current?.focus(), 0);
+              }}
+              aria-label="Search"
+              title="Search anything... (Ctrl + K)"
+            >
+              <Search size={17} />
+            </button>
+
+            {/* Global Search Bar (Responsive: adapts smoothly across tablet & desktop) */}
             <div
-              className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl px-3.5 py-1.5 w-64 sm:w-80 md:w-96 cursor-text transition-colors hover:border-slate-300 dark:hover:border-slate-700"
+              className="hidden sm:flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl px-3 py-1.5 w-36 md:w-56 lg:w-72 xl:w-96 cursor-text transition-colors hover:border-slate-300 dark:hover:border-slate-700"
               onClick={() => {
                 setCommandOpen(true);
                 window.setTimeout(() => commandInputRef.current?.focus(), 0);
               }}
             >
-              <Search size={15} className="text-slate-400 shrink-0" />
-              <span className="text-xs sm:text-sm text-slate-400 flex-1 truncate">
+              <Search size={14} className="text-slate-400 shrink-0" />
+              <span className="text-xs text-slate-400 flex-1 truncate">
                 Search anything... (Ctrl + K)
               </span>
             </div>
           </div>
 
           {/* Right: Quick Attendance/Breaks, Theme Toggle, Notifications, Mailbox, User Avatar */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5">
+          <div className="flex items-center gap-1 sm:gap-2 md:gap-2.5 shrink-0">
             {user && (
               <>
-                {/* Birthday Celebrant Pill: Placed next to Check In / Shift option */}
+                {/* Birthday Celebrant Pill: Compact & Sleek */}
                 {birthdayCelebrant && (
                   <button
                     type="button"
@@ -1764,12 +1887,12 @@ const Layout = () => {
                       setSelectedBirthdayPerson(birthdayCelebrant);
                       setShowBirthdayCelebration(true);
                     }}
-                    className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-rose-500/15 to-yellow-500/15 hover:from-amber-500/25 hover:to-rose-500/25 border border-amber-300 dark:border-amber-400/50 text-amber-950 dark:text-amber-100 shadow-2xs hover:shadow-xs transition-all duration-300 cursor-pointer active:scale-95"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-gradient-to-r from-amber-500/15 via-rose-500/15 to-yellow-500/15 hover:from-amber-500/25 hover:to-rose-500/25 border border-amber-300 dark:border-amber-400/50 text-amber-950 dark:text-amber-100 shadow-2xs hover:shadow-xs transition-all duration-200 cursor-pointer active:scale-95 text-xs font-semibold shrink-0"
                     title={`🎉 Today is ${birthdayCelebrant.name}'s Birthday! Click to celebrate! 🎂`}
                     aria-label={`Birthday celebration for ${birthdayCelebrant.name}`}
                   >
-                    {/* Birthday Person's Circular Profile Photo with Animated Glowing Neon Border */}
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden birthday-avatar-glow ring-2 ring-amber-400 dark:ring-amber-300 flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-sm shrink-0">
+                    {/* Compact Avatar with Glowing Ring */}
+                    <div className="w-5.5 h-5.5 rounded-full overflow-hidden birthday-avatar-glow ring-1.5 ring-amber-400 dark:ring-amber-300 flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-xs shrink-0">
                       {birthdayCelebrant.profileImage ? (
                         <img
                           src={
@@ -1787,52 +1910,51 @@ const Layout = () => {
                           }}
                         />
                       ) : null}
-                      <span className={`w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-500 via-rose-500 to-indigo-600 text-white font-black text-[10px] sm:text-xs ${birthdayCelebrant.profileImage ? 'hidden' : 'flex'}`}>
+                      <span className={`w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-500 to-rose-500 text-white font-black text-[9px] ${birthdayCelebrant.profileImage ? 'hidden' : 'flex'}`}>
                         {birthdayCelebrant.name ? birthdayCelebrant.name.slice(0, 2).toUpperCase() : '🎂'}
                       </span>
                     </div>
 
-                    {/* Birthday Person's Name */}
-                    <div className="flex items-center gap-1 text-xs font-bold whitespace-nowrap">
-                      <span>🎂</span>
-                      <span className="font-extrabold max-w-[100px] sm:max-w-[150px] truncate text-slate-900 dark:text-amber-100">
-                        {birthdayCelebrant.name}
-                      </span>
-                      <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded-full font-black animate-pulse hidden sm:inline">
-                        Birthday!
-                      </span>
-                      <span>🎉</span>
-                    </div>
+                    {/* Compact Name + Cake */}
+                    <span className="font-extrabold text-xs truncate max-w-[55px] sm:max-w-[85px] text-slate-900 dark:text-amber-100 hidden xs:inline">
+                      {birthdayCelebrant.name?.trim().split(/\s+/)[0] || 'Celebrant'}
+                    </span>
+                    <span className="text-[11px] leading-none shrink-0" title="Birthday!">
+                      🎂
+                    </span>
                   </button>
                 )}
 
                 {/* Single Combined Shift, Break & Check Out Option */}
                 {attendanceStatus.loading ? (
-                  <div className="h-8 w-24 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse hidden xs:block" />
+                  <div className="h-7 w-16 sm:h-8 sm:w-20 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse hidden xs:block" />
                 ) : attendanceStatus.isShiftCompleted ? (
                   attendanceStatus.isLatePenalty ? (
                     <div
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 flex items-center gap-1.5 select-none"
+                      className="px-2 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 flex items-center gap-1 sm:gap-1.5 select-none shrink-0"
                       title="3rd late check-in penalty: 4.5 hours cut (Half Day)"
                     >
-                      <Clock size={12} className="text-rose-600 dark:text-rose-400 stroke-[2.5]" />
-                      <span>Half Day (3rd Late)</span>
+                      <Clock size={12} className="text-rose-600 dark:text-rose-400 stroke-[2.5] shrink-0" />
+                      <span className="hidden sm:inline">Half Day (3rd Late)</span>
+                      <span className="sm:hidden">Half Day</span>
                     </div>
                   ) : attendanceStatus.isEarlyCheckout ? (
                     <div
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 flex items-center gap-1.5 select-none"
+                      className="px-2 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 flex items-center gap-1 sm:gap-1.5 select-none shrink-0"
                       title="Checked out early (< 7 hours - Half Day)"
                     >
-                      <Clock size={12} className="text-amber-600 dark:text-amber-400 stroke-[2.5]" />
-                      <span>Early Checkout</span>
+                      <Clock size={12} className="text-amber-600 dark:text-amber-400 stroke-[2.5] shrink-0" />
+                      <span className="hidden sm:inline">Early Checkout</span>
+                      <span className="sm:hidden">Early</span>
                     </div>
                   ) : (
                     <div
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1.5 select-none"
+                      className="px-2 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60 flex items-center gap-1 sm:gap-1.5 select-none shrink-0"
                       title="Shift completed for today"
                     >
-                      <Check size={12} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
-                      <span>Shift Done</span>
+                      <Check size={12} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5] shrink-0" />
+                      <span className="hidden sm:inline">Shift Done</span>
+                      <span className="sm:hidden">Done</span>
                     </div>
                   )
                 ) : !attendanceStatus.isPunchedIn ? (
@@ -1840,11 +1962,12 @@ const Layout = () => {
                     type="button"
                     onClick={handleCheckIn}
                     disabled={punchLoading}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs hover:shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    className="px-2 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs hover:shadow-xs flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer disabled:opacity-50 shrink-0"
                     title="Check in for today's shift"
                   >
-                    {punchLoading ? <Loader2 size={12} className="animate-spin" /> : <LogIn size={12} />}
-                    <span>Check In</span>
+                    {punchLoading ? <Loader2 size={12} className="animate-spin shrink-0" /> : <LogIn size={12} className="shrink-0" />}
+                    <span className="hidden xs:inline">Check In</span>
+                    <span className="xs:hidden">In</span>
                   </button>
                 ) : (
                   /* Single Option on Navbar containing both Break & Check Out */
@@ -1856,7 +1979,7 @@ const Layout = () => {
                         setShiftMenuOpen(next);
                         if (next && !activeBreak) fetchBreaks();
                       }}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                      className={`px-2 sm:px-2.5 md:px-3 py-1 sm:py-1.5 rounded-xl text-xs sm:text-[13px] font-semibold border transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5 shadow-xs shrink-0 ${
                         activeBreak
                           ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 animate-pulse'
                           : shiftMenuOpen
@@ -1867,18 +1990,19 @@ const Layout = () => {
                     >
                       {activeBreak ? (
                         <>
-                          <Coffee size={12} />
-                          <span>
-                            Break Out <span className="font-mono text-[10px] opacity-90 hidden sm:inline">({formatBreakTimer(timeLeft, elapsedExceeded)})</span>
+                          <Coffee size={13} className="shrink-0" />
+                          <span className="text-xs">
+                            <span className="hidden xs:inline">Break Out </span>
+                            <span className="font-mono text-[11px] sm:text-xs font-bold opacity-90">({formatBreakTimer(timeLeft, elapsedExceeded)})</span>
                           </span>
                         </>
                       ) : (
                         <>
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                          <span className="flex items-center gap-1 font-medium">
-                            <span>On Shift</span>
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                          <span className="flex items-center gap-1 font-semibold text-xs sm:text-[13px]">
+                            <span className="hidden md:inline">On Shift</span>
                             {attendanceStatus.loginTime && (
-                              <span className="font-mono text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-900/60 px-1 py-0.2 rounded tracking-tight">
+                              <span className="font-mono text-[11px] sm:text-xs md:text-[13px] font-extrabold text-emerald-800 dark:text-emerald-200 bg-emerald-100 dark:bg-emerald-900/70 px-1.5 sm:px-2 py-0.5 rounded-md tracking-normal shadow-2xs">
                                 {elapsedShiftTime}
                               </span>
                             )}
@@ -1886,8 +2010,8 @@ const Layout = () => {
                         </>
                       )}
                       <ChevronDown
-                        size={11}
-                        className={`transition-transform duration-200 ${shiftMenuOpen ? 'rotate-180' : ''} ${
+                        size={12}
+                        className={`transition-transform duration-200 shrink-0 ${shiftMenuOpen ? 'rotate-180' : ''} ${
                           activeBreak ? 'text-amber-100' : 'text-slate-400'
                         }`}
                       />
@@ -1895,7 +2019,7 @@ const Layout = () => {
 
                     {/* Unified Dropdown Menu for Breaks and Check Out */}
                     {shiftMenuOpen && (
-                      <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2.5 z-50 text-left">
+                      <div className="absolute right-0 mt-2 w-[calc(100vw-20px)] max-w-xs sm:w-80 bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-2.5 z-50 text-left">
                         {/* Status Header */}
                         <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl mb-2 flex items-center justify-between border border-slate-100 dark:border-slate-800/80">
                           <div className="flex items-center gap-2 min-w-0">
@@ -1920,7 +2044,7 @@ const Layout = () => {
                               {activeBreak ? 'Break' : 'Working'}
                             </span>
                             {!activeBreak && attendanceStatus.loginTime && (
-                              <span className="font-mono text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 tracking-tight leading-none mt-1">
+                              <span className="font-mono text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tracking-tight leading-none mt-1">
                                 {elapsedShiftTime}
                               </span>
                             )}
@@ -1929,8 +2053,8 @@ const Layout = () => {
 
                         {/* Late Notice */}
                         {(attendanceStatus.isLatePenalty || attendanceStatus.isLateCheckIn) && (
-                          <div className="px-3 py-1.5 mb-2 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1.5">
-                            <Clock size={13} className="shrink-0 text-amber-500" />
+                          <div className="px-2.5 py-1 mb-2 bg-amber-50 dark:bg-amber-950/40 rounded-lg border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+                            <Clock size={12} className="shrink-0 text-amber-500" />
                             <span>Late check in</span>
                           </div>
                         )}
@@ -1962,15 +2086,15 @@ const Layout = () => {
                             </div>
                           ) : (
                             <div>
-                              <div className="px-2 py-0.5 flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                <span className="flex items-center gap-1.5">
-                                  <Coffee size={11} className="text-amber-500" />
+                              <div className="px-2 py-0.5 flex items-center justify-between text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                <span className="flex items-center gap-1">
+                                  <Coffee size={10} className="text-amber-500" />
                                   Break Options
                                 </span>
-                                <span className="text-[9px] lowercase font-normal">1-click start</span>
+                                <span className="text-[8.5px] lowercase font-normal">1-click start</span>
                               </div>
 
-                              <div className="max-h-44 overflow-y-auto space-y-0.5 py-0.5">
+                              <div className="max-h-36 overflow-y-auto space-y-0.5 py-0.5">
                                 {loadingBreaks ? (
                                   <div className="p-2 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
                                     <Loader2 size={12} className="animate-spin" />
@@ -1985,26 +2109,26 @@ const Layout = () => {
                                         type="button"
                                         onClick={() => handleSelectBreak(item)}
                                         disabled={breakActionLoading}
-                                        className="w-full px-2 py-1 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors flex items-center justify-between group cursor-pointer"
+                                        className="w-full px-2 py-0.5 rounded-md text-left hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors flex items-center justify-between group cursor-pointer"
                                       >
-                                        <div className="min-w-0 pr-2">
-                                          <p className="text-[11px] font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 leading-tight">
+                                        <div className="min-w-0 pr-1.5">
+                                          <p className="text-[10px] font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 leading-tight">
                                             {item.breakType}
                                           </p>
                                           {item.fromTime && item.toTime && (
-                                            <p className="text-[9px] text-slate-400 leading-none mt-0.5">
+                                            <p className="text-[8.5px] text-slate-400 leading-none mt-0.5">
                                               {item.fromTime} - {item.toTime}
                                             </p>
                                           )}
                                         </div>
-                                        <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/60 group-hover:text-amber-700 dark:group-hover:text-amber-300">
+                                        <span className="shrink-0 text-[8.5px] font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/60 group-hover:text-amber-700 dark:group-hover:text-amber-300">
                                           {duration}m
                                         </span>
                                       </button>
                                     );
                                   })
                                 ) : (
-                                  <div className="py-2 px-2 text-center text-[11px] text-slate-400">
+                                  <div className="py-2 px-2 text-center text-[10px] text-slate-400">
                                     No breaks defined in Daily Break Administration
                                   </div>
                                 )}
@@ -2016,7 +2140,7 @@ const Layout = () => {
                                   setShiftMenuOpen(false);
                                   navigate('/take-break');
                                 }}
-                                className="w-full px-2 py-0.5 text-left text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center justify-between cursor-pointer"
+                                className="w-full px-2 py-0.5 text-left text-[9.5px] text-blue-600 dark:text-blue-400 hover:underline font-medium flex items-center justify-between cursor-pointer"
                               >
                                 <span>Custom break request</span>
                                 <span>→</span>
@@ -2060,17 +2184,17 @@ const Layout = () => {
                   </div>
                 )}
 
-                <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 mx-0.5 hidden xs:block" />
+                <div className="h-4 sm:h-5 w-px bg-slate-200 dark:bg-slate-800 mx-0.5 hidden sm:block" />
               </>
             )}
 
             <button
               type="button"
               onClick={() => updateAppearance({ mode: isDark ? 'light' : 'dark' })}
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {isDark ? <Moon size={18} className="text-amber-400" /> : <Sun size={18} />}
+              {isDark ? <Moon size={16} className="text-amber-400 sm:w-[18px] sm:h-[18px]" /> : <Sun size={16} className="sm:w-[18px] sm:h-[18px]" />}
             </button>
 
             {/* Notification Bell Dropdown */}
@@ -2078,20 +2202,20 @@ const Layout = () => {
               <button
                 type="button"
                 onClick={() => setNotificationsOpen((prev) => !prev)}
-                className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer relative"
+                className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer relative shrink-0"
                 title="Notifications"
                 aria-label="View notifications"
               >
-                <Bell size={18} />
+                <Bell size={16} className="sm:w-[18px] sm:h-[18px]" />
                 {unreadCount > 0 && (
-                  <span className="min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center absolute top-1 right-1 ring-2 ring-white dark:ring-slate-900">
+                  <span className="min-w-3.5 h-3.5 sm:min-w-4 sm:h-4 px-0.5 sm:px-1 rounded-full bg-rose-500 text-white text-[9px] sm:text-[10px] font-bold flex items-center justify-center absolute top-0.5 right-0.5 sm:top-1 sm:right-1 ring-1.5 sm:ring-2 ring-white dark:ring-slate-900">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-[#111827] rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 py-2 z-50 overflow-hidden">
+                <div className="absolute right-0 mt-2 w-[calc(100vw-20px)] max-w-sm sm:w-96 bg-white dark:bg-[#111827] rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 py-2 z-50 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm text-slate-900 dark:text-white">Notifications</span>
@@ -2154,14 +2278,14 @@ const Layout = () => {
             </div>
 
             {/* User Profile Menu */}
-            <div className="relative ml-1 flex items-center gap-1" ref={profileRef}>
+            <div className="relative ml-0.5 sm:ml-1 flex items-center gap-1 shrink-0" ref={profileRef}>
               <button
                 type="button"
                 onClick={() => setProfileOpen((prev) => !prev)}
-                className="flex items-center gap-2 p-1 pr-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                className="flex items-center gap-1 sm:gap-2 p-0.5 sm:p-1 pr-1 sm:pr-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                 title="Account menu"
               >
-                <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-slate-200 dark:ring-slate-700 flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-sm text-white font-bold text-xs">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden ring-1.5 sm:ring-2 ring-slate-200 dark:ring-slate-700 flex items-center justify-center bg-slate-100 dark:bg-slate-800 shadow-sm text-white font-bold text-xs shrink-0">
                   {resolvedAvatarUrl ? (
                     <img
                       src={resolvedAvatarUrl}
@@ -2179,10 +2303,10 @@ const Layout = () => {
                     {initials}
                   </span>
                 </div>
-                <span className="hidden md:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 max-w-[90px] truncate">
+                <span className="hidden xl:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 max-w-[80px] truncate">
                   {user?.name?.split(' ')[0] || 'User'}
                 </span>
-                <ChevronDown size={13} className="text-slate-400" />
+                <ChevronDown size={12} className="text-slate-400 hidden xs:block shrink-0" />
               </button>
 
               {profileOpen && (

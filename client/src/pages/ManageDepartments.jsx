@@ -22,6 +22,7 @@ const emptyForm = { name: '', code: '', headName: '', description: '' };
 
 const ManageDepartments = () => {
   const [departments, setDepartments] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -33,8 +34,16 @@ const ManageDepartments = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get('/api/departments');
-      setDepartments(asArray(response.envelope?.data ?? response.data));
+      const [deptResponse, userResponse] = await Promise.all([
+        api.get('/api/departments'),
+        api.get('/api/users?limit=500').catch(() => ({ data: [] })),
+      ]);
+      setDepartments(asArray(deptResponse.envelope?.data ?? deptResponse.data));
+      const rawUsers = asArray(userResponse.data?.items ?? userResponse.data);
+      const activeEmployees = [...rawUsers]
+        .filter((u) => u.isActive !== false)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      setEmployees(activeEmployees);
     } catch (requestError) {
       setError(getApiError(requestError, 'Unable to load departments'));
     } finally {
@@ -275,7 +284,7 @@ const ManageDepartments = () => {
             <input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Engineering, Sales, HR"
+              placeholder="Enter department name"
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
@@ -286,20 +295,29 @@ const ManageDepartments = () => {
             <input
               value={form.code}
               onChange={(e) => setForm({ ...form, code: e.target.value })}
-              placeholder="e.g. ENG, SLS, HR"
+              placeholder="Enter department code (e.g. HR, ENG)"
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
               Department Head (Optional)
             </label>
-            <input
+            <select
               value={form.headName}
               onChange={(e) => setForm({ ...form, headName: e.target.value })}
-              placeholder="e.g. John Doe"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
-            />
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+            >
+              <option value="">-- Select Department Head (None) --</option>
+              {employees.map((emp) => (
+                <option key={emp._id} value={emp.name}>
+                  {emp.name} {emp.employeeId ? `(${emp.employeeId})` : ''} {emp.designation ? `• ${emp.designation}` : (emp.department ? `• ${emp.department}` : '')}
+                </option>
+              ))}
+              {form.headName && !employees.some((e) => e.name === form.headName) && (
+                <option value={form.headName}>{form.headName} (Current)</option>
+              )}
+            </select>
           </div>
           <div className="sm:col-span-2">
             <label className="text-xs font-semibold text-slate-700 block mb-1.5">
@@ -308,7 +326,7 @@ const ManageDepartments = () => {
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Brief description of the department's role..."
+              placeholder="Describe department responsibilities, operations, and deliverables..."
               rows={3}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             />

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/documentUploadMiddleware');
@@ -5,13 +6,21 @@ const assessmentController = require('../controllers/assessmentController');
 const env = require('../config/env');
 const AppError = require('../utils/AppError');
 
+const safeApiKeyEqual = (provided, expected) => {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  const provBuf = Buffer.from(provided);
+  const expBuf = Buffer.from(expected);
+  if (provBuf.length !== expBuf.length) return false;
+  return crypto.timingSafeEqual(provBuf, expBuf);
+};
+
 // API Key verification middleware for dedicated assessment portal
 const requireAssessmentApiKey = (req, res, next) => {
   const configuredKey = env.assessmentApiKey;
   if (!configuredKey) return next();
 
   const clientKey = req.headers['x-assessment-api-key'] || req.headers['x-api-key'] || req.query.apiKey;
-  if (clientKey && clientKey === configuredKey) {
+  if (clientKey && safeApiKeyEqual(clientKey, configuredKey)) {
     return next();
   }
 

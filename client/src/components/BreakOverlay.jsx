@@ -270,7 +270,7 @@ const BreakOverlay = () => {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Enter your password"
+                    placeholder="Enter your account password to resume shift"
                     className="w-full text-xs sm:text-sm bg-transparent text-slate-900 dark:text-white placeholder-slate-400 outline-none"
                     autoFocus
                     autoComplete="current-password"

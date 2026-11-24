@@ -201,7 +201,11 @@ const getUsers = asyncHandler(async (req, res) => {
   const query = { deletedAt: null };
   if (req.query.role) query.role = String(req.query.role).toLowerCase();
   if (req.query.isActive !== undefined) query.isActive = req.query.isActive === 'true';
-  if (req.query.department) query.department = req.query.department;
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    query.department = req.user.department;
+  } else if (req.query.department) {
+    query.department = req.query.department;
+  }
   if (req.query.search) query.$text = { $search: String(req.query.search).trim() };
 
   const sort = req.query.sort === 'oldest' ? { createdAt: 1 } : { createdAt: -1 };
@@ -263,6 +267,9 @@ const deleteUser = asyncHandler(async (req, res) => {
   const targetUser = await User.findById(req.params.id).select('+tokenVersion');
   if (!targetUser || targetUser.deletedAt) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
   if (targetUser._id.equals(req.user._id)) throw new AppError('You cannot delete your own account', 400, 'SELF_DELETE_BLOCKED');
+  if (req.user?.dataScope === 'department' && req.user.department && targetUser.department !== req.user.department) {
+    throw new AppError('You can only delete employees within your assigned department', 403, 'FORBIDDEN');
+  }
   if (targetUser.role === 'super admin' && req.user.role !== 'super admin') {
     throw new AppError('Only a super admin can delete another super admin', 403, 'FORBIDDEN');
   }
@@ -286,6 +293,9 @@ const updateUserStatus = asyncHandler(async (req, res) => {
   if (!targetUser || targetUser.deletedAt) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
   if (targetUser._id.equals(req.user._id) && !req.body.isActive) {
     throw new AppError('You cannot disable your own account', 400, 'SELF_DISABLE_BLOCKED');
+  }
+  if (req.user?.dataScope === 'department' && req.user.department && targetUser.department !== req.user.department) {
+    throw new AppError('You can only modify employees within your assigned department', 403, 'FORBIDDEN');
   }
   if (targetUser.role === 'super admin' && req.user.role !== 'super admin') {
     throw new AppError('Only a super admin can modify another super admin', 403, 'FORBIDDEN');
@@ -342,6 +352,9 @@ const updateUser = asyncHandler(async (req, res) => {
   validators.objectId(req.params.id, 'user id');
   const targetUser = await User.findById(req.params.id).select('+tokenVersion');
   if (!targetUser || targetUser.deletedAt) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+  if (req.user?.dataScope === 'department' && req.user.department && targetUser.department !== req.user.department) {
+    throw new AppError('You can only update employees within your assigned department', 403, 'FORBIDDEN');
+  }
   if (targetUser.role === 'super admin' && req.user.role !== 'super admin') {
     throw new AppError('Only a super admin can modify another super admin', 403, 'FORBIDDEN');
   }
@@ -399,6 +412,9 @@ const getUserById = asyncHandler(async (req, res) => {
   }
   if (!user) {
     throw new AppError('Employee not found', 404, 'USER_NOT_FOUND');
+  }
+  if (req.user?.dataScope === 'department' && req.user.department && user.department !== req.user.department && String(user._id) !== String(req.user._id)) {
+    throw new AppError('Access to employee outside your assigned department is forbidden', 403, 'FORBIDDEN');
   }
   const roleDoc = await Role.findOne({ name: user.role, isActive: true }).select('allowedRoutes').lean();
   if (roleDoc?.allowedRoutes?.length) {

@@ -13,10 +13,25 @@ This repository contains:
 ## Security model
 
 Browser authentication uses an HTTP-only signed JWT cookie. State-changing browser requests require a matching double-submit CSRF token. Bearer JWT authentication remains supported for non-browser API clients. Role checks are enforced on the server; route visibility in the frontend is only a usability layer.
-
+    
 Before deploying this refactor, rotate the MongoDB credentials, JWT secret, and settings-encryption key used by the original package. The uploaded source contained a real `.env` file; the sanitized handoff excludes it.
 
 ## Local development
+
+### Quick Start (All Services: ERP + Assessment Portal + Backend)
+
+From the project root:
+
+```bash
+npm run dev
+```
+
+This single Node command launches:
+- **ERP Web Client**: `http://localhost:5173`
+- **Assessment Portal**: `http://localhost:5174`
+- **Backend API**: `http://localhost:5000`
+
+> **Note**: Even if you only start the ERP frontend (`cd client && npm run dev`), Vite will automatically detect and start the assessment portal on port 5174 in the background.
 
 ### Prerequisites
 
@@ -24,7 +39,9 @@ Before deploying this refactor, rotate the MongoDB credentials, JWT secret, and 
 - npm 10+
 - MongoDB 7+
 
-### Backend
+### Manual Startup (Individual Services)
+
+#### 1. Backend
 
 ```bash
 cd server
@@ -36,7 +53,7 @@ npm run dev
 
 Set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` before running the seed command. The seed command refuses weak or missing credentials.
 
-### Frontend
+#### 2. ERP Frontend
 
 ```bash
 cd client
@@ -45,7 +62,15 @@ npm ci
 npm run dev
 ```
 
-Vite proxies `/api` to the configured backend during development.
+Vite proxies `/api` to the configured backend during development and automatically launches the assessment portal on port 5174.
+
+#### 3. Assessment Portal
+
+```bash
+cd assessment-client
+npm ci
+npm run dev
+```
 
 ## Quality gates
 

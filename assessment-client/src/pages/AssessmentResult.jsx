@@ -67,9 +67,13 @@ const AssessmentResult = () => {
             Assessment Submitted
           </h1>
 
-          {autoSubmittedReason === 'tab_switch_exceeded' ? (
-            <div className="mb-6 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs">
-              Assessment automatically submitted due to reaching maximum tab switch limit.
+          {autoSubmittedReason === 'tab_switch_prohibited' || autoSubmittedReason === 'tab_switch_exceeded' ? (
+            <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs text-left flex items-start space-x-3">
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block font-bold mb-0.5">Assessment Automatically Submitted</strong>
+                <span>Tab switching or navigating away from the examination window is strictly prohibited. Your assessment was locked and submitted with your current recorded answers.</span>
+              </div>
             </div>
           ) : autoSubmittedReason === 'time_expired' ? (
             <div className="mb-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs">

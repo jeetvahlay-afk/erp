@@ -343,7 +343,7 @@ const ManageShift = () => {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Shift Name</label>
             <input
               type="text"
-              placeholder="e.g. General Shift, Night Operations"
+              placeholder="Enter shift name"
               className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
               value={editing?.shiftName || ''}
               onChange={(e) => setEditing({ ...editing, shiftName: e.target.value })}
@@ -378,7 +378,7 @@ const ManageShift = () => {
                 type="number"
                 min="0"
                 max="180"
-                placeholder="15"
+                placeholder="Enter grace period in minutes"
                 className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-3.5 pr-14 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
                 value={editing?.gracePeriod !== undefined ? editing.gracePeriod : 15}
                 onChange={(e) => {

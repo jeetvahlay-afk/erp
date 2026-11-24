@@ -751,7 +751,7 @@ const EmployeeWorkspacePage = ({ type }) => {
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                    placeholder={replyingTo ? `Replying to ${replyingTo.sender?.name || 'user'}…` : 'Write a message…'}
+                    placeholder={replyingTo ? `Replying to ${replyingTo.sender?.name || 'user'}…` : 'Type a message (Press Enter to send)…'}
                   />
                   <button type="button" onClick={sendMessage} disabled={sending || (!message.trim() && !pendingFile)} aria-label="Send message">
                     <Send size={17} />
@@ -782,7 +782,7 @@ const EmployeeWorkspacePage = ({ type }) => {
         {config.chatType === 'team' && (
           <div className="erp-field" style={{ marginBottom: 14 }}>
             <label>Group Name</label>
-            <input value={conversationName} onChange={(e) => setConversationName(e.target.value)} placeholder="Example: Product Team" />
+            <input value={conversationName} onChange={(e) => setConversationName(e.target.value)} placeholder="Enter group conversation name" />
           </div>
         )}
         <div className="erp-member-picker">
@@ -1030,7 +1030,7 @@ const EmployeeWorkspacePage = ({ type }) => {
         <div className="erp-form-grid one-column">
           <div className="erp-field">
             <label>Title <em>*</em></label>
-            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={type === 'announcements' ? 'Announcement title' : 'Event title'} />
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={type === 'announcements' ? 'e.g. Office Town Hall / Holiday Schedule' : 'e.g. Annual Team Outing 2026'} />
           </div>
           {type === 'events' && (
             <>
@@ -1046,7 +1046,7 @@ const EmployeeWorkspacePage = ({ type }) => {
           )}
           <div className="erp-field">
             <label>Description / Message <em>*</em></label>
-            <textarea value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder="Write message details..." rows={4} />
+            <textarea value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder="Provide announcement details, agenda, schedule, or instructions..." rows={4} />
           </div>
         </div>
       </Modal>

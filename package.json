@@ -1,0 +1,17 @@
+{
+  "name": "teamhub-erp-platform",
+  "version": "3.0.0",
+  "private": true,
+  "description": "TeamHub ERP and Assessment Portal Integrated Workspace",
+  "scripts": {
+    "dev": "node scripts/start-dev.js",
+    "start": "node scripts/start-dev.js",
+    "dev:all": "node scripts/start-dev.js",
+    "dev:erp": "node scripts/start-dev.js",
+    "dev:assessment": "npm --prefix assessment-client run dev",
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "build": "npm --prefix client run build && npm --prefix assessment-client run build",
+    "test": "npm --prefix server test"
+  }
+}

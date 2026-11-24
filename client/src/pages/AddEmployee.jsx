@@ -330,7 +330,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.firstName}
                     onChange={(e) => setField('firstName', e.target.value)}
-                    placeholder="e.g. Alex"
+                    placeholder="Enter first name"
                   />
                 </div>
                 <div>
@@ -341,7 +341,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.lastName}
                     onChange={(e) => setField('lastName', e.target.value)}
-                    placeholder="e.g. Morgan"
+                    placeholder="Enter last name"
                   />
                 </div>
                 <div>
@@ -353,7 +353,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.email}
                     onChange={(e) => setField('email', e.target.value)}
-                    placeholder="e.g. alex.morgan@company.com"
+                    placeholder="Enter email address"
                   />
                 </div>
                 <div>
@@ -362,7 +362,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.username}
                     onChange={(e) => setField('username', e.target.value)}
-                    placeholder="e.g. amorgan"
+                    placeholder="Enter username"
                   />
                 </div>
                 <div>
@@ -375,7 +375,7 @@ const AddEmployee = () => {
                       className={`${inputClass} pr-10`}
                       value={form.password}
                       onChange={(e) => setField('password', e.target.value)}
-                      placeholder="Min 8 characters with letters & numbers"
+                      placeholder="Enter password"
                     />
                     <button
                       type="button"
@@ -398,7 +398,7 @@ const AddEmployee = () => {
                       className={`${inputClass} pr-10`}
                       value={form.confirmPassword}
                       onChange={(e) => setField('confirmPassword', e.target.value)}
-                      placeholder="Re-type password"
+                      placeholder="Confirm password"
                     />
                     <button
                       type="button"
@@ -417,7 +417,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.phone}
                     onChange={(e) => setField('phone', e.target.value)}
-                    placeholder="+1 555-0100"
+                    placeholder="Enter phone number"
                   />
                 </div>
                 <div>
@@ -426,7 +426,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.employeeId}
                     onChange={(e) => setField('employeeId', e.target.value)}
-                    placeholder="Leave blank for auto-generation"
+                    placeholder="Enter employee ID (or leave blank to auto-generate)"
                   />
                 </div>
               </div>
@@ -488,7 +488,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.designation}
                     onChange={(e) => setField('designation', e.target.value)}
-                    placeholder="e.g. Senior Software Engineer"
+                    placeholder="Enter designation / job title"
                   />
                 </div>
                 <div>
@@ -526,7 +526,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.company}
                     onChange={(e) => setField('company', e.target.value)}
-                    placeholder="e.g. TeamHub Technologies"
+                    placeholder="Enter company entity"
                   />
                 </div>
                 <div className="sm:col-span-2">
@@ -536,7 +536,7 @@ const AddEmployee = () => {
                     className={inputClass}
                     value={form.bio}
                     onChange={(e) => setField('bio', e.target.value)}
-                    placeholder="Brief background or notes..."
+                    placeholder="Enter background, responsibilities, or onboarding notes..."
                   />
                 </div>
               </div>
@@ -569,7 +569,7 @@ const AddEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. Chase Bank, HDFC"
+                  placeholder="Enter bank name"
                 />
               </div>
               <div>
@@ -586,7 +586,7 @@ const AddEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. Alex Morgan"
+                  placeholder="Enter account holder name"
                 />
               </div>
               <div>
@@ -603,7 +603,7 @@ const AddEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. 123456789"
+                  placeholder="Enter bank account number"
                 />
               </div>
               <div>
@@ -620,7 +620,7 @@ const AddEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. CHAS0123456"
+                  placeholder="Enter IFSC code"
                 />
               </div>
               <div className="sm:col-span-2">
@@ -637,7 +637,7 @@ const AddEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. Downtown Branch"
+                  placeholder="Enter bank branch name"
                 />
               </div>
             </div>
@@ -679,7 +679,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.name || ''}
                             onChange={(e) => updateFamilyMember(index, 'name', e.target.value)}
-                            placeholder="Full name"
+                            placeholder="Enter family member name"
                             className={inputClass}
                           />
                         </td>
@@ -702,7 +702,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.phone || ''}
                             onChange={(e) => updateFamilyMember(index, 'phone', e.target.value)}
-                            placeholder="Phone"
+                            placeholder="Enter phone number"
                             className={inputClass}
                           />
                         </td>
@@ -774,7 +774,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.institution || ''}
                             onChange={(e) => updateEducation(index, 'institution', e.target.value)}
-                            placeholder="College / School"
+                            placeholder="Enter institution / university name"
                             className={inputClass}
                           />
                         </td>
@@ -783,7 +783,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.degree || ''}
                             onChange={(e) => updateEducation(index, 'degree', e.target.value)}
-                            placeholder="e.g. B.Tech, MBA"
+                            placeholder="Enter degree / qualification"
                             className={inputClass}
                           />
                         </td>
@@ -792,7 +792,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.fieldOfStudy || ''}
                             onChange={(e) => updateEducation(index, 'fieldOfStudy', e.target.value)}
-                            placeholder="Major"
+                            placeholder="Enter field of study / specialization"
                             className={inputClass}
                           />
                         </td>
@@ -817,7 +817,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.grade || ''}
                             onChange={(e) => updateEducation(index, 'grade', e.target.value)}
-                            placeholder="Grade / GPA"
+                            placeholder="Enter grade / percentage"
                             className={inputClass}
                           />
                         </td>
@@ -880,7 +880,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.company || ''}
                             onChange={(e) => updateExperience(index, 'company', e.target.value)}
-                            placeholder="Company name"
+                            placeholder="Enter company / organization name"
                             className={inputClass}
                           />
                         </td>
@@ -889,7 +889,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.designation || ''}
                             onChange={(e) => updateExperience(index, 'designation', e.target.value)}
-                            placeholder="Role / Title"
+                            placeholder="Enter designation / job role"
                             className={inputClass}
                           />
                         </td>
@@ -914,7 +914,7 @@ const AddEmployee = () => {
                             type="text"
                             value={item.description || ''}
                             onChange={(e) => updateExperience(index, 'description', e.target.value)}
-                            placeholder="Responsibilities"
+                            placeholder="Enter responsibilities, deliverables, or projects..."
                             className={inputClass}
                           />
                         </td>

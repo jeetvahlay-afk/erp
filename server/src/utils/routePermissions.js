@@ -9,6 +9,7 @@ const ROUTE_PERMISSIONS = Object.freeze({
   '/manage-attendance': ['attendance.read', 'attendance.write'],
   '/manage-leaves': ['leaves.read', 'leaves.write'],
   '/manage-interviews': ['recruitment.read', 'recruitment.create', 'recruitment.write'],
+  '/manage-agreements': ['recruitment.read', 'recruitment.write'],
   '/profile-requests': ['employees.write'],
   '/payrolls': ['payroll.read', 'payroll.create', 'payroll.write'],
   '/salary-config': ['payroll.write'],

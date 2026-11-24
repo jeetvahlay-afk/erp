@@ -12,8 +12,23 @@ const { dispatchNotifications, dispatchToActiveRoles } = require('../services/no
 
 const getAllLeaves = asyncHandler(async (req, res) => {
   const query = {};
-  if (req.query.status) query.status = req.query.status;
-  if (req.query.userId) {
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const deptUserIds = await User.find({ department: req.user.department, deletedAt: null }).distinct('_id');
+    if (req.query.userId) {
+      let targetUserId = req.query.userId;
+      if (!mongoose.isValidObjectId(targetUserId)) {
+        const user = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id');
+        if (user) targetUserId = user._id;
+        else return res.json([]);
+      }
+      if (!deptUserIds.some((id) => String(id) === String(targetUserId))) {
+        return res.json([]);
+      }
+      query.user = targetUserId;
+    } else {
+      query.user = { $in: deptUserIds };
+    }
+  } else if (req.query.userId) {
     let targetUserId = req.query.userId;
     if (!mongoose.isValidObjectId(targetUserId)) {
       const user = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id');
@@ -22,6 +37,7 @@ const getAllLeaves = asyncHandler(async (req, res) => {
     }
     query.user = targetUserId;
   }
+  if (req.query.status) query.status = req.query.status;
   const leaves = await Leave.find(query)
     .populate('user', 'name email employeeId role department')
     .populate('reviewedBy', 'name employeeId')
@@ -36,6 +52,13 @@ const updateLeaveStatus = asyncHandler(async (req, res) => {
   const leave = await Leave.findById(req.params.id);
   if (!leave) throw new AppError('Leave request not found', 404, 'LEAVE_NOT_FOUND');
   if (leave.status !== 'Pending') throw new AppError('Leave request has already been processed', 409, 'LEAVE_ALREADY_PROCESSED');
+
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const targetUser = await User.findById(leave.user).select('department');
+    if (!targetUser || targetUser.department !== req.user.department) {
+      throw new AppError('You can only review leave requests for employees in your department', 403, 'FORBIDDEN');
+    }
+  }
 
   leave.status = status;
   leave.adminResponse = validators.optionalString(req.body.adminResponse, 'adminResponse', { max: 1000 });
@@ -153,13 +176,29 @@ const downloadAttachment = asyncHandler(async (req, res) => {
   const leave = await Leave.findById(req.params.id).lean();
   if (!leave?.attachment) throw new AppError('Attachment not found', 404, 'ATTACHMENT_NOT_FOUND');
   const isOwner = String(leave.user) === String(req.user._id);
-  const isAdmin = ['admin', 'super admin'].includes(req.user.role);
+  const isAdmin = ['admin', 'super admin', 'hr'].includes(req.user.role);
   if (!isOwner && !isAdmin) throw new AppError('You cannot access this attachment', 403, 'FORBIDDEN');
 
   const filePath = path.resolve(__dirname, '../../uploads/leaves', path.basename(leave.attachment));
   if (!fs.existsSync(filePath)) throw new AppError('Attachment file is unavailable', 404, 'ATTACHMENT_NOT_FOUND');
   res.setHeader('Cache-Control', 'private, no-store');
-  res.download(filePath);
+
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.pdf': 'application/pdf',
+  };
+  const mimeType = mimeTypes[ext] || 'application/octet-stream';
+  res.setHeader('Content-Type', mimeType);
+
+  if (req.query.inline === 'true') {
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(leave.attachment)}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } else {
+    res.download(filePath, path.basename(leave.attachment));
+  }
 });
 
 module.exports = { getAllLeaves, updateLeaveStatus, applyLeave, getMyLeaves, downloadAttachment };

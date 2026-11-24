@@ -15,6 +15,8 @@ const AssessmentExam = () => {
   const [remainingSeconds, setRemainingSeconds] = useState(50 * 60);
   const [tabSwitches, setTabSwitches] = useState(0);
   const [showTabWarning, setShowTabWarning] = useState(false);
+  const [showKeyWarning, setShowKeyWarning] = useState(false);
+  const [detectedKey, setDetectedKey] = useState('');
   const [showExitModal, setShowExitModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(
@@ -86,13 +88,17 @@ const AssessmentExam = () => {
     const fetchExam = async () => {
       try {
         setLoading(true);
-        const res = await axios.get(`/api/assessment/${candidateCode}/exam`);
+        const urlParams = new URLSearchParams(window.location.search);
+        const isRetake = urlParams.get('retake') === 'true';
+
+        const res = await axios.get(`/api/assessment/${candidateCode}/exam${isRetake ? '?retake=true' : ''}`);
         const raw = res.data?.data;
         const data = (raw && raw.questions) ? raw : (raw?.data || raw);
         if (!data || !Array.isArray(data.questions)) return;
 
         setExamData(data);
-        setRemainingSeconds(data.remainingSeconds ?? 50 * 60);
+        const secs = Number(data.remainingSeconds);
+        setRemainingSeconds(!isNaN(secs) && secs > 0 ? secs : 50 * 60);
         setTabSwitches(data.tabSwitchCount || 0);
         tabSwitchesRef.current = data.tabSwitchCount || 0;
 
@@ -100,7 +106,7 @@ const AssessmentExam = () => {
           setAnswers(data.savedAnswers);
         }
 
-        if (data.status === 'Completed') {
+        if (data.status === 'Completed' && !isRetake) {
           navigate(`/assessment/${candidateCode}/result`, { replace: true });
         }
       } catch (err) {
@@ -133,42 +139,88 @@ const AssessmentExam = () => {
     return () => clearInterval(timer);
   }, [loading, examData, submitting]);
 
-  // 3. Anti-cheat Tab Switch Tracking
+  // 3. Keyboard Key Warning: Restrict keys and warn that tab-switching is prohibited
+  useEffect(() => {
+    if (loading || !examData || submitting) return;
+
+    const handleKeyDown = (e) => {
+      // Intercept and prevent browser actions for tab switching, refresh, DevTools
+      if (
+        e.key === 'Tab' ||
+        e.altKey ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.key === 'F5' ||
+        e.key === 'F12' ||
+        e.key === 'F11' ||
+        e.key === 'Escape'
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      const keyLabel = e.key === ' ' ? 'Space' : e.key;
+      setDetectedKey(keyLabel);
+      setShowKeyWarning(true);
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [loading, examData, submitting]);
+
+  // 4. Anti-cheat Tab Switch Tracking: If user tries to change tab/window, automatically submit immediately
   const recordTabSwitchBackend = useCallback(async () => {
-    if (submittingRef.current) return;
+    if (submittingRef.current || loading || !examData) return;
+    submittingRef.current = true;
+    setSubmitting(true);
 
     try {
-      const res = await axios.post(`/api/assessment/${candidateCode}/tab-switch`);
-      const newCount = res.data?.tabSwitchCount || tabSwitchesRef.current + 1;
-      tabSwitchesRef.current = newCount;
-      setTabSwitches(newCount);
-
-      if (res.data?.autoSubmitted || newCount >= 3) {
-        submittingRef.current = true;
-        navigate(`/assessment/${candidateCode}/result`, {
-          replace: true,
-          state: { autoSubmittedReason: 'tab_switch_exceeded' },
-        });
-      } else {
-        setShowTabWarning(true);
-      }
+      await axios.post(`/api/assessment/${candidateCode}/tab-switch`);
     } catch (err) {
-      console.error('Error recording tab switch:', err);
+      console.warn('Tab-switch signal logged:', err?.message);
     }
-  }, [candidateCode, navigate]);
+
+    try {
+      await axios.post(`/api/assessment/${candidateCode}/submit`, { answers });
+      exitFullscreen();
+      navigate(`/assessment/${candidateCode}/result`, {
+        replace: true,
+        state: { autoSubmittedReason: 'tab_switch_prohibited' },
+      });
+    } catch (err) {
+      console.error('Error auto-submitting after tab switch:', err);
+      exitFullscreen();
+      navigate(`/assessment/${candidateCode}/result`, {
+        replace: true,
+        state: { autoSubmittedReason: 'tab_switch_prohibited' },
+      });
+    }
+  }, [candidateCode, navigate, loading, examData, answers]);
 
   useEffect(() => {
+    if (loading || !examData || submitting) return;
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
         recordTabSwitchBackend();
       }
     };
 
+    const handleWindowBlur = () => {
+      // If user clicks outside the window to another application/tab
+      recordTabSwitchBackend();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [recordTabSwitchBackend]);
+  }, [recordTabSwitchBackend, loading, examData, submitting]);
 
   // 4. Save Answer for current question
   const handleSelectOption = (optionKey) => {
@@ -520,6 +572,58 @@ const AssessmentExam = () => {
               className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs transition"
             >
               Resume Assessment
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* KEYBOARD ACTIVITY & TAB SWITCH WARNING MODAL */}
+      {showKeyWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="max-w-md w-full bg-white rounded-2xl p-6 sm:p-7 shadow-2xl border border-rose-200 text-center">
+            <div className="w-14 h-14 rounded-full bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center mx-auto mb-4 shadow-2xs">
+              <AlertTriangle className="w-7 h-7" />
+            </div>
+
+            <div className="inline-block px-3 py-1 bg-rose-100 text-rose-700 rounded-full text-[10px] font-extrabold uppercase tracking-widest mb-2.5">
+              RESTRICTED KEYSTROKE DETECTED
+            </div>
+
+            <h3 className="text-xl font-extrabold text-gray-900 tracking-tight mb-2">
+              Keyboard Action Prohibited
+            </h3>
+
+            <p className="text-xs sm:text-sm text-gray-600 mb-4 leading-relaxed">
+              Keyboard inputs are disabled during this assessment. You cannot switch tabs, change windows, or use shortcut keys.
+            </p>
+
+            <div className="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-left">
+              <div className="flex items-start space-x-2 text-xs text-rose-800 leading-normal">
+                <span className="font-bold shrink-0">⚠️ CRITICAL WARNING:</span>
+                <span>
+                  If you attempt to <strong>switch tabs or change windows</strong>, your assessment will be <strong>submitted automatically</strong> immediately with your current answers.
+                </span>
+              </div>
+              {detectedKey && (
+                <div className="mt-2 pt-2 border-t border-rose-200/70 text-[11px] text-rose-700 flex items-center justify-between">
+                  <span>Detected Key:</span>
+                  <span className="font-mono font-bold bg-white px-2 py-0.5 rounded border border-rose-300">
+                    {detectedKey}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-gray-500 mb-6">
+              Please use only your <strong>mouse or touch controls</strong> to select options (A, B, C, D) and click Save &amp; Next.
+            </p>
+
+            <button
+              onClick={() => setShowKeyWarning(false)}
+              style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
+              className="w-full py-3 rounded-xl text-white font-bold text-sm shadow-sm transition hover:opacity-90 cursor-pointer"
+            >
+              I Understand &amp; Continue Assessment
             </button>
           </div>
         </div>

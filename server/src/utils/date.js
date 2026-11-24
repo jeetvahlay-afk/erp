@@ -23,6 +23,10 @@ const createFromIST = (year, month, date, hours = 0, minutes = 0, seconds = 0, m
 };
 
 const startOfLogicalShiftDay = (input = new Date()) => {
+  if (typeof input === 'string' && isIsoDate(input)) {
+    const [y, m, d] = input.split('-').map(Number);
+    return createFromIST(y, m - 1, d, 0, 0, 0, 0);
+  }
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) return null;
   

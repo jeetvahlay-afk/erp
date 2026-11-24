@@ -5,6 +5,7 @@ const roleSchema = new mongoose.Schema({
   description: { type: String, required: true, trim: true, maxlength: 500 },
   permissions: { type: [String], default: [] },
   allowedRoutes: { type: [String], default: [] },
+  dataScope: { type: String, enum: ['all', 'department'], default: 'all' },
   isSystem: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true, index: true },
 }, { timestamps: true, optimisticConcurrency: true });

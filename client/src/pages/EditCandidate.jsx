@@ -6,6 +6,8 @@ import {
   FileText,
   GraduationCap,
   Save,
+  Trash2,
+  Upload,
   User,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -17,6 +19,8 @@ import {
   PageHeader,
   ToolbarButton,
 } from '../components/ui/EnterpriseUI';
+import PhoneInputField from '../components/PhoneInputField';
+import { parsePhoneNumber, validatePhoneNumber } from '../constants/countryCodes';
 
 const BRANCH_OPTIONS = [
   'Ahmedabad',
@@ -65,6 +69,7 @@ const blankCandidate = {
   firstName: '',
   lastName: '',
   email: '',
+  countryCode: '+91',
   phoneNumber: '',
   gender: '',
   maritalStatus: '',
@@ -120,6 +125,8 @@ const EditCandidate = () => {
   const [form, setForm] = useState(blankCandidate);
   const [departments, setDepartments] = useState([]);
   const [state, setState] = useState({ loading: true, saving: false, error: '' });
+  const [uploadingCv, setUploadingCv] = useState(false);
+  const [cvFileName, setCvFileName] = useState('');
 
   const load = async () => {
     setState({ loading: true, saving: false, error: '' });
@@ -136,10 +143,13 @@ const EditCandidate = () => {
       const derivedLastName = nameParts.slice(1).join(' ') || '';
 
       const notes = candidate.stageNotes || {};
+      const parsedPhone = parsePhoneNumber(candidate.phoneNumber || '');
 
       setForm({
         ...blankCandidate,
         ...candidate,
+        countryCode: parsedPhone.countryCode,
+        phoneNumber: parsedPhone.phoneNumber,
         firstName: derivedFirstName,
         lastName: derivedLastName,
         candidateName: fullName,
@@ -199,14 +209,51 @@ const EditCandidate = () => {
     }));
   };
 
+  const handleUploadCvFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      feedback.error('File exceeds 25MB maximum size limit.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setUploadingCv(true);
+      const res = await api.post('/api/interviews/upload-cv', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const uploadedUrl = res.data.cvUrl;
+      setField('cvUrl', uploadedUrl);
+      setCvFileName(res.data.fileName || file.name);
+      feedback.success(`CV "${res.data.fileName || file.name}" uploaded successfully!`);
+    } catch (err) {
+      feedback.error(getApiError(err, 'Failed to upload CV document'));
+    } finally {
+      setUploadingCv(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveCv = () => {
+    setField('cvUrl', '');
+    setCvFileName('');
+    feedback.info('CV document removed.');
+  };
+
   const submit = async () => {
     const candidateName = form.candidateName.trim() || `${form.firstName} ${form.lastName}`.trim();
     if (!candidateName) {
       feedback.error('Candidate full name is required.');
       return;
     }
-    if (!form.phoneNumber.trim()) {
-      feedback.error('Phone number is required.');
+    const phoneErr = validatePhoneNumber(form.countryCode || '+91', form.phoneNumber);
+    if (phoneErr) {
+      feedback.error(phoneErr);
       return;
     }
     if (!form.candidatePost.trim()) {
@@ -216,8 +263,13 @@ const EditCandidate = () => {
 
     setState((current) => ({ ...current, saving: true }));
     try {
+      const code = form.countryCode || '+91';
+      const cleanDigits = (form.phoneNumber || '').replace(/\D/g, '');
+      const formattedPhone = cleanDigits ? `${code} ${cleanDigits}` : '';
+
       const payload = {
         ...form,
+        phoneNumber: formattedPhone,
         candidateName,
         remarks: form.comments || form.remarks || '',
         comments: form.comments || form.remarks || '',
@@ -343,22 +395,20 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.email}
                     onChange={(e) => setField('email', e.target.value)}
-                    placeholder="e.g. candidate@example.com"
+                    placeholder="Enter email address"
                   />
                 </div>
 
-                <div>
-                  <label className={labelClass}>
-                    Phone Number <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    className={inputClass}
-                    value={form.phoneNumber}
-                    onChange={(e) => setField('phoneNumber', e.target.value)}
-                    placeholder="e.g. +91 9876543210"
-                  />
-                </div>
+                <PhoneInputField
+                  countryCode={form.countryCode || '+91'}
+                  phoneNumber={form.phoneNumber}
+                  onCountryCodeChange={(code) => setField('countryCode', code)}
+                  onPhoneNumberChange={(digits) => setField('phoneNumber', digits)}
+                  label="Phone Number"
+                  required
+                  error={form.phoneNumber ? validatePhoneNumber(form.countryCode, form.phoneNumber) : null}
+                  touched={Boolean(form.phoneNumber)}
+                />
 
                 <div>
                   <label className={labelClass}>Gender</label>
@@ -394,7 +444,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.currentLocation}
                     onChange={(e) => setField('currentLocation', e.target.value)}
-                    placeholder="e.g. Ahmedabad, Gujarat"
+                    placeholder="Enter city or current location"
                   />
                 </div>
 
@@ -448,7 +498,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.candidatePost}
                     onChange={(e) => setField('candidatePost', e.target.value)}
-                    placeholder="e.g. Fullstack Developer"
+                    placeholder="Enter applied role or post"
                   />
                 </div>
 
@@ -501,7 +551,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.candidateReference}
                     onChange={(e) => setField('candidateReference', e.target.value)}
-                    placeholder="e.g. Walk-in, LinkedIn, Campus Drive"
+                    placeholder="Enter candidate reference or source"
                   />
                 </div>
 
@@ -514,7 +564,7 @@ const EditCandidate = () => {
                       setField('candidateCode', e.target.value);
                       setField('reference', e.target.value);
                     }}
-                    placeholder="e.g. WK-00109"
+                    placeholder="Enter candidate ID or reference code"
                   />
                 </div>
 
@@ -582,7 +632,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.interviewScore}
                     onChange={(e) => setField('interviewScore', e.target.value)}
-                    placeholder="e.g. 8/30 · Red"
+                    placeholder="Enter evaluation score or rating"
                   />
                 </div>
 
@@ -602,7 +652,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.interviewTime}
                     onChange={(e) => setField('interviewTime', e.target.value)}
-                    placeholder="e.g. 10:00 AM"
+                    placeholder="Enter interview time (e.g. 10:00 AM)"
                   />
                 </div>
 
@@ -612,7 +662,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.firstRoundBy}
                     onChange={(e) => setField('firstRoundBy', e.target.value)}
-                    placeholder="Interviewer name"
+                    placeholder="Enter interviewer name"
                   />
                 </div>
 
@@ -622,7 +672,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.secondRoundBy}
                     onChange={(e) => setField('secondRoundBy', e.target.value)}
-                    placeholder="Interviewer name"
+                    placeholder="Enter interviewer name"
                   />
                 </div>
 
@@ -632,7 +682,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.trainingStatus}
                     onChange={(e) => setField('trainingStatus', e.target.value)}
-                    placeholder="e.g. Active, Completed"
+                    placeholder="Enter training status"
                   />
                 </div>
               </div>
@@ -663,7 +713,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.course}
                     onChange={(e) => setField('course', e.target.value)}
-                    placeholder="e.g. B.Tech Computer Engineering"
+                    placeholder="Enter degree or course name"
                   />
                 </div>
 
@@ -673,7 +723,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.college}
                     onChange={(e) => setField('college', e.target.value)}
-                    placeholder="e.g. Gujarat Technological University"
+                    placeholder="Enter college or university name"
                   />
                 </div>
               </div>
@@ -697,7 +747,7 @@ const EditCandidate = () => {
                     className={inputClass}
                     value={form.experience}
                     onChange={(e) => setField('experience', e.target.value)}
-                    placeholder="e.g. Fresher, 1.5 Years"
+                    placeholder="Enter experience duration (e.g. Fresher / 1.5 Years)"
                   />
                 </div>
 
@@ -727,35 +777,110 @@ const EditCandidate = () => {
             <div>
               <div className="mb-4 pb-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Resume Document</h3>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Resume / CV Document</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Link to candidate resume or CV uploaded document.
+                    Upload candidate resume file (PDF, Word, DOCX) or provide an external document link.
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div>
-                  <label className={labelClass}>Resume / CV URL</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      className={inputClass}
-                      value={form.cvUrl}
-                      onChange={(e) => setField('cvUrl', e.target.value)}
-                      placeholder="e.g. https://... or uploaded resume file path"
-                    />
-                    {form.cvUrl && (
+              <div className="space-y-4">
+                {/* 1. File Upload Dropzone / Preview */}
+                {form.cvUrl ? (
+                  <div className="p-4 rounded-2xl bg-purple-50/70 dark:bg-purple-950/30 border-2 border-purple-200 dark:border-purple-800/60 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                        <FileText size={20} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                            {cvFileName || form.cvUrl.split('/').pop() || 'Candidate_Resume.pdf'}
+                          </p>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                            Attached ✓
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {form.cvUrl}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
                       <a
                         href={form.cvUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-3 py-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold flex items-center gap-1.5 shrink-0 hover:bg-purple-100 transition"
+                        className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
                       >
                         <ExternalLink size={13} />
-                        <span>View</span>
+                        <span>View / Open CV</span>
                       </a>
-                    )}
+
+                      <label className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+                        <Upload size={13} />
+                        <span>{uploadingCv ? 'Uploading...' : 'Replace'}</span>
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.rtf,.txt"
+                          onChange={handleUploadCvFile}
+                          disabled={uploadingCv}
+                          className="hidden"
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={handleRemoveCv}
+                        className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-900 transition cursor-pointer"
+                        title="Remove CV"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-purple-500 dark:hover:border-purple-400 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-900/30 transition">
+                    <div className="w-12 h-12 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center mx-auto mb-3 shadow-xs">
+                      {uploadingCv ? (
+                        <div className="w-5 h-5 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Upload size={22} />
+                      )}
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                      {uploadingCv ? 'Uploading CV document...' : 'Upload Candidate CV / Resume'}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-4">
+                      Supports PDF, DOC, DOCX up to 25MB. Click below to browse from your device.
+                    </p>
+
+                    <label className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md transition cursor-pointer">
+                      <Upload size={14} />
+                      <span>{uploadingCv ? 'Uploading...' : 'Choose CV Document File'}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.rtf,.txt"
+                        onChange={handleUploadCvFile}
+                        disabled={uploadingCv}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {/* 2. Optional Manual URL input */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Or External Resume / Portfolio Link (Google Drive, LinkedIn, etc.):
+                  </label>
+                  <input
+                    className={inputClass}
+                    value={form.cvUrl}
+                    onChange={(e) => setField('cvUrl', e.target.value)}
+                    placeholder="https://drive.google.com/... or /uploads/documents/resumes/..."
+                  />
                 </div>
               </div>
             </div>

@@ -14,6 +14,7 @@ const asList = (value, fallback = []) => {
 };
 
 const nodeEnv = process.env.NODE_ENV || 'development';
+const isTestMode = nodeEnv === 'test' || process.argv.some((arg) => arg.includes('test')) || process.execArgv.some((arg) => arg.includes('test'));
 const required = ['MONGO_URI', 'JWT_SECRET'];
 if (nodeEnv === 'production') required.push('SETTINGS_ENCRYPTION_KEY');
 const missing = required.filter((key) => !process.env[key]);
@@ -26,7 +27,14 @@ if (nodeEnv === 'production' && process.env.JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET must contain at least 32 characters in production');
 }
 
-const corsOrigins = asList(process.env.CORS_ORIGINS, ['http://localhost:5173', 'http://localhost:3000']);
+const corsOrigins = asList(process.env.CORS_ORIGINS, [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:3000',
+]);
 
 const cookieSecure = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : nodeEnv === 'production';
 const cookieSameSite = ['lax', 'strict', 'none'].includes(process.env.COOKIE_SAME_SITE)
@@ -66,6 +74,12 @@ const env = Object.freeze({
   smtpFromName: process.env.SMTP_FROM_NAME || 'Vahlay Consulting',
   smtpFromEmail: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || '',
   assessmentApiKey: process.env.ASSESSMENT_API_KEY || 'vahlay_assessment_sec_9f81a7b538e124d9c',
+  redisUrl: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+  redisHost: process.env.REDIS_HOST || '127.0.0.1',
+  redisPort: asNumber(process.env.REDIS_PORT, 6379),
+  redisPassword: process.env.REDIS_PASSWORD || undefined,
+  enableRedis: process.env.ENABLE_REDIS === 'true',
+  isTestMode,
 });
 
 module.exports = env;

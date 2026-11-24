@@ -86,7 +86,7 @@ const AccountsConfig = () => {
                 name="paymentGatewayId"
                 value={form.paymentGatewayId}
                 onChange={(e) => setForm({ ...form, paymentGatewayId: e.target.value })}
-                placeholder="Provider account identifier (e.g., rzp_live_...)"
+                placeholder="Enter payment gateway key ID"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>
@@ -100,7 +100,7 @@ const AccountsConfig = () => {
                 name="paymentGatewaySecret"
                 value={form.paymentGatewaySecret}
                 onChange={(e) => setForm({ ...form, paymentGatewaySecret: e.target.value })}
-                placeholder="Leave masked value unchanged to preserve"
+                placeholder="Enter new secret (or leave blank to keep unchanged)"
                 autoComplete="new-password"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono"
               />
@@ -115,7 +115,7 @@ const AccountsConfig = () => {
                 name="smsApiKey"
                 value={form.smsApiKey}
                 onChange={(e) => setForm({ ...form, smsApiKey: e.target.value })}
-                placeholder="Messaging provider credential"
+                placeholder="Enter SMS API token / key"
                 autoComplete="new-password"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono"
               />
@@ -130,7 +130,7 @@ const AccountsConfig = () => {
                 name="thirdPartyApiUrl"
                 value={form.thirdPartyApiUrl}
                 onChange={(e) => setForm({ ...form, thirdPartyApiUrl: e.target.value })}
-                placeholder="https://service.company.com/api"
+                placeholder="Enter third-party API base URL"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>

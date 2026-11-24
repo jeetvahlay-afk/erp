@@ -9,38 +9,30 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  Clock,
   Copy,
   Download,
   Edit3,
-  ExternalLink,
   Eye,
   FileCheck,
   FileText,
   GraduationCap,
   Lock,
   Mail,
-  MapPin,
   MessageCircle,
   Phone,
   PhoneCall,
   Save,
-  Send,
   Sparkles,
   Trash2,
-  User,
-  X,
   XCircle,
 } from 'lucide-react';
 import api, { getApiError } from '../lib/api';
 import { feedback } from '../lib/feedback';
 import {
-  Avatar,
   EmptyState,
   ErrorState,
   LoadingState,
   Modal,
-  PageHeader,
   StatusBadge,
   ToolbarButton,
   formatDate,
@@ -52,17 +44,6 @@ import {
   REJECTION_STAGE_DEF,
   COMMON_REJECTION_REASONS,
 } from '../components/CandidateDetailsModal';
-
-const BRANCH_OPTIONS = [
-  'Ahmedabad',
-  'Surat',
-  'Vadodara',
-  'Mumbai',
-  'Pune',
-  'Delhi',
-  'Bangalore',
-  'Remote',
-];
 
 const STAGE_DEFINITIONS = BASE_STAGE_DEFINITIONS;
 
@@ -99,6 +80,7 @@ const getInitials = (name) => {
 const InterviewDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [now] = useState(() => Date.now());
 
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -279,7 +261,6 @@ const InterviewDetails = () => {
     setCustomRejectionNote('');
     setRejectModalOpen(true);
   };
-  const handleReject = handleOpenRejectModal;
 
   const handleConfirmReject = async () => {
     setSavingReject(true);
@@ -352,7 +333,7 @@ const InterviewDetails = () => {
     String(interview?.status || '').toLowerCase().includes('ongoing');
   const isProbationStatus = String(interview?.status || '').toLowerCase().includes('probation');
   const daysInTraining = trainingStart
-    ? Math.max(0, Math.floor((Date.now() - new Date(trainingStart).getTime()) / (24 * 60 * 60 * 1000)))
+    ? Math.max(0, Math.floor((now - new Date(trainingStart).getTime()) / (24 * 60 * 60 * 1000)))
     : 0;
 
   return (
@@ -377,9 +358,21 @@ const InterviewDetails = () => {
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                   {interview.candidateName}
                 </h1>
-                <span className="font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  {interview.candidateCode || interview.candidateReference || 'WK-CANDIDATE'}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cCode = interview.candidateCode || interview.candidateReference;
+                    if (cCode) {
+                      navigator.clipboard.writeText(cCode);
+                      feedback.success(`Candidate ID copied: ${cCode}`);
+                    }
+                  }}
+                  title="Copy Candidate ID"
+                  className="font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 hover:bg-blue-100 transition cursor-pointer"
+                >
+                  <span>{interview.candidateCode || interview.candidateReference || 'WK-CANDIDATE'}</span>
+                  <Copy size={11} className="text-blue-500" />
+                </button>
                 <StatusBadge tone={getStatusTone(interview.status)}>
                   {interview.status}
                 </StatusBadge>
@@ -552,7 +545,7 @@ const InterviewDetails = () => {
               const isRejected = String(interview.status || '').toLowerCase().includes('rejected');
               const isPast = step.level < currentLevel;
               const isCurrent = step.level === currentLevel;
-              const isLocked = step.level > currentLevel && !Boolean(stageNotes[step.key]?.trim());
+              const isLocked = step.level > currentLevel && !stageNotes[step.key]?.trim();
               const isRejectedHere = isRejected && step.level === currentLevel;
 
               return (
@@ -865,17 +858,32 @@ const InterviewDetails = () => {
             </div>
 
             {/* Quick Copy Contact Bar */}
-            <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
-              <span className="truncate">{interview.email || 'No email'}</span>
-              {interview.email && (
-                <button
-                  type="button"
-                  onClick={copyEmail}
-                  className="hover:text-blue-600 p-1 cursor-pointer flex items-center gap-1 font-semibold text-[11px]"
-                >
-                  {copiedEmail ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                  <span>{copiedEmail ? 'Copied' : 'Copy'}</span>
-                </button>
+            <div className="pt-2 space-y-1 text-xs text-slate-500">
+              <div className="flex items-center justify-between">
+                <span className="truncate">{interview.email || 'No email'}</span>
+                {interview.email && (
+                  <button
+                    type="button"
+                    onClick={copyEmail}
+                    className="hover:text-blue-600 p-1 cursor-pointer flex items-center gap-1 font-semibold text-[11px]"
+                  >
+                    {copiedEmail ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                    <span>{copiedEmail ? 'Copied' : 'Copy'}</span>
+                  </button>
+                )}
+              </div>
+              {interview.phoneNumber && (
+                <div className="flex items-center justify-between">
+                  <span className="truncate">{interview.phoneNumber}</span>
+                  <button
+                    type="button"
+                    onClick={copyPhone}
+                    className="hover:text-blue-600 p-1 cursor-pointer flex items-center gap-1 font-semibold text-[11px]"
+                  >
+                    {copiedPhone ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                    <span>{copiedPhone ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -891,9 +899,6 @@ const InterviewDetails = () => {
                   <FileText size={16} className="text-blue-600" />
                   <span>Interviewer Evaluation & Stage Notes</span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Multi-round interview evaluation unlocked level-wise.
-                </p>
               </div>
 
               <button
@@ -1022,7 +1027,7 @@ const InterviewDetails = () => {
                 const activeStageIsLocked =
                   activeDef.key !== 'rejected' &&
                   activeDef.level > currentStageLevel &&
-                  !Boolean(stageNotes[activeDef.key]?.trim());
+                  !stageNotes[activeDef.key]?.trim();
                 const priorHistoricalStages = stageList.filter(
                   (def) => def.key !== activeNotesStage && Boolean(stageNotes[def.key]?.trim())
                 );
@@ -1168,24 +1173,10 @@ const InterviewDetails = () => {
           </div>
 
           {/* Workflow Stage Progression Action Bar */}
-          <div
-            style={{
-              background:
-                'linear-gradient(to right, color-mix(in srgb, var(--erp-primary, #2563eb) 10%, transparent), color-mix(in srgb, var(--erp-accent, #8b5cf6) 8%, transparent))',
-              borderColor: 'color-mix(in srgb, var(--erp-primary, #2563eb) 25%, transparent)',
-            }}
-            className="rounded-3xl border p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xs"
-          >
-            <div>
-              <div
-                style={{ color: 'var(--erp-primary, #2563eb)' }}
-                className="text-xs font-bold uppercase tracking-wider"
-              >
-                Pipeline Stage Progression
-              </div>
-              <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                Current status is <strong className="text-slate-900 dark:text-white">{interview.status}</strong>. Advance to next round or finalize decision.
-              </div>
+          <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 flex items-center justify-between flex-wrap gap-4 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Current Status:</span>
+              <StatusBadge status={interview.status} />
             </div>
 
             <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
@@ -1259,7 +1250,7 @@ const InterviewDetails = () => {
               rows={3}
               value={customRejectionNote}
               onChange={(e) => setCustomRejectionNote(e.target.value)}
-              placeholder="e.g. Scored 8/30 on assessment desk, did not meet technical criteria for Fullstack role..."
+              placeholder="Enter rejection reason and evaluation notes..."
               className="w-full bg-slate-50/50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition resize-y font-normal"
             />
           </div>

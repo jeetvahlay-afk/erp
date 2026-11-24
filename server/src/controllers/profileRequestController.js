@@ -38,8 +38,13 @@ const getMyProfileRequests = asyncHandler(async (req, res) => {
   res.json(requests);
 });
 
-const getAllProfileRequests = asyncHandler(async (_req, res) => {
-  const requests = await ProfileRequest.find({})
+const getAllProfileRequests = asyncHandler(async (req, res) => {
+  const query = {};
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const deptUserIds = await User.find({ department: req.user.department, deletedAt: null }).distinct('_id');
+    query.user = { $in: deptUserIds };
+  }
+  const requests = await ProfileRequest.find(query)
     .populate('user', 'name employeeId email department profileImage avatar')
     .populate('reviewedBy', 'name employeeId email')
     .sort({ createdAt: -1 })
@@ -53,6 +58,13 @@ const updateProfileRequestStatus = asyncHandler(async (req, res) => {
   const request = await ProfileRequest.findById(req.params.id);
   if (!request) throw new AppError('Request not found', 404, 'REQUEST_NOT_FOUND');
   if (request.status !== 'pending') throw new AppError('Request has already been processed', 409, 'REQUEST_ALREADY_PROCESSED');
+
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const targetUser = await User.findById(request.user).select('department');
+    if (!targetUser || targetUser.department !== req.user.department) {
+      throw new AppError('You can only review profile requests for employees in your department', 403, 'FORBIDDEN');
+    }
+  }
 
   if (status === 'approved') {
     const user = await User.findById(request.user);

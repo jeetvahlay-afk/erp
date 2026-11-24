@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+const { createRateLimitStore } = require('./redis/rateLimitStore');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 const env = require('./config/env');
@@ -13,6 +14,7 @@ const csrfProtection = require('./middleware/csrfMiddleware');
 const apiResponseMiddleware = require('./middleware/apiResponseMiddleware');
 const AppError = require('./utils/AppError');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+const { protect } = require('./middleware/authMiddleware');
 
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -36,6 +38,7 @@ const chatRoutes = require('./routes/chatRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const workReportRoutes = require('./routes/workReportRoutes');
 const assessmentRoutes = require('./routes/assessmentRoutes');
+const agreementRoutes = require('./routes/agreementRoutes');
 
 const app = express();
 if (env.trustProxy) app.set('trust proxy', 1);
@@ -53,7 +56,18 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Request-Id', 'X-CSRF-Token'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'X-Request-Id',
+    'X-CSRF-Token',
+    'x-assessment-api-key',
+    'X-Assessment-Api-Key',
+    'x-api-key',
+    'X-Api-Key',
+  ],
   exposedHeaders: ['X-Request-Id', 'X-Total-Count'],
   maxAge: 86400,
 }));
@@ -73,6 +87,7 @@ const apiLimiter = rateLimit({
   limit: env.isProduction ? 1000 : 5000,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  store: createRateLimitStore('rl:api:'),
   message: { message: 'Too many requests. Please try again later', code: 'RATE_LIMITED' },
 });
 const authLimiter = rateLimit({
@@ -81,6 +96,7 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  store: createRateLimitStore('rl:auth:'),
   message: { message: 'Too many authentication attempts. Please try again later', code: 'AUTH_RATE_LIMITED' },
 });
 app.use('/api', apiLimiter);
@@ -89,9 +105,22 @@ app.use('/api/auth/verify', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-password', authLimiter);
 
-app.use('/uploads/chat', express.static(path.resolve(__dirname, '../uploads/chat')));
-app.use('/uploads/avatars', express.static(path.resolve(__dirname, '../uploads/avatars')));
-app.use('/uploads/documents', express.static(path.resolve(__dirname, '../uploads/documents')));
+app.use('/uploads/avatars', express.static(path.resolve(__dirname, '../uploads/avatars'), {
+  dotfiles: 'ignore',
+  setHeaders: (res) => res.set('X-Content-Type-Options', 'nosniff'),
+}));
+app.use('/uploads/documents/agreements', express.static(path.resolve(__dirname, '../uploads/documents/agreements'), {
+  dotfiles: 'ignore',
+  setHeaders: (res) => res.set('X-Content-Type-Options', 'nosniff'),
+}));
+app.use('/uploads/chat', protect, express.static(path.resolve(__dirname, '../uploads/chat'), {
+  dotfiles: 'ignore',
+  setHeaders: (res) => res.set('X-Content-Type-Options', 'nosniff'),
+}));
+app.use('/uploads/documents', protect, express.static(path.resolve(__dirname, '../uploads/documents'), {
+  dotfiles: 'ignore',
+  setHeaders: (res) => res.set('X-Content-Type-Options', 'nosniff'),
+}));
 app.get('/', (_req, res) => res.json({ name: 'TeamHub ERP API', version: '3.0.0' }));
 app.get('/api/health', (_req, res) => {
   const databaseStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
@@ -127,6 +156,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/work-reports', workReportRoutes);
 app.use('/api/assessment', assessmentRoutes);
+app.use('/api/agreements', agreementRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

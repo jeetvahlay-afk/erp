@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Banknote,
-  Camera,
   GraduationCap,
   ImagePlus,
   Plus,
@@ -708,7 +707,7 @@ const EditEmployee = () => {
                       className={inputClass}
                       value={form.exitReason || ''}
                       onChange={(e) => setField('exitReason', e.target.value)}
-                      placeholder="e.g. Absconded without notice, Resigned due to relocation..."
+                      placeholder="Enter separation reason or remarks..."
                     />
                   </div>
                 )}
@@ -719,7 +718,7 @@ const EditEmployee = () => {
                     className={inputClass}
                     value={form.bio || ''}
                     onChange={(e) => setField('bio', e.target.value)}
-                    placeholder="Brief background or profile description..."
+                    placeholder="Enter background or profile description..."
                   />
                 </div>
               </div>
@@ -752,7 +751,7 @@ const EditEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. Chase Bank, HDFC"
+                  placeholder="Enter bank name"
                 />
               </div>
               <div>
@@ -769,7 +768,7 @@ const EditEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. John Doe"
+                  placeholder="Enter account holder name"
                 />
               </div>
               <div>
@@ -786,7 +785,7 @@ const EditEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. 123456789"
+                  placeholder="Enter bank account number"
                 />
               </div>
               <div>
@@ -803,7 +802,7 @@ const EditEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. CHAS0123456"
+                  placeholder="Enter IFSC code"
                 />
               </div>
               <div className="sm:col-span-2">
@@ -820,7 +819,7 @@ const EditEmployee = () => {
                       },
                     })
                   }
-                  placeholder="e.g. Main City Branch"
+                  placeholder="Enter bank branch name"
                 />
               </div>
             </div>
@@ -862,7 +861,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.name || ''}
                             onChange={(e) => updateFamilyMember(index, 'name', e.target.value)}
-                            placeholder="Full name"
+                            placeholder="Enter family member name"
                             className={inputClass}
                           />
                         </td>
@@ -885,7 +884,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.phone || ''}
                             onChange={(e) => updateFamilyMember(index, 'phone', e.target.value)}
-                            placeholder="Phone"
+                            placeholder="Enter phone number"
                             className={inputClass}
                           />
                         </td>
@@ -957,7 +956,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.institution || ''}
                             onChange={(e) => updateEducation(index, 'institution', e.target.value)}
-                            placeholder="College / School"
+                            placeholder="Enter institution / university name"
                             className={inputClass}
                           />
                         </td>
@@ -966,7 +965,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.degree || ''}
                             onChange={(e) => updateEducation(index, 'degree', e.target.value)}
-                            placeholder="e.g. B.Tech, MBA"
+                            placeholder="Enter degree / qualification"
                             className={inputClass}
                           />
                         </td>
@@ -975,7 +974,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.fieldOfStudy || ''}
                             onChange={(e) => updateEducation(index, 'fieldOfStudy', e.target.value)}
-                            placeholder="Major"
+                            placeholder="Enter field of study / specialization"
                             className={inputClass}
                           />
                         </td>
@@ -1000,7 +999,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.grade || ''}
                             onChange={(e) => updateEducation(index, 'grade', e.target.value)}
-                            placeholder="Grade / GPA"
+                            placeholder="Enter grade / percentage"
                             className={inputClass}
                           />
                         </td>
@@ -1063,7 +1062,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.company || ''}
                             onChange={(e) => updateExperience(index, 'company', e.target.value)}
-                            placeholder="Company name"
+                            placeholder="Enter company / organization name"
                             className={inputClass}
                           />
                         </td>
@@ -1072,7 +1071,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.designation || ''}
                             onChange={(e) => updateExperience(index, 'designation', e.target.value)}
-                            placeholder="Role / Title"
+                            placeholder="Enter designation / job role"
                             className={inputClass}
                           />
                         </td>
@@ -1097,7 +1096,7 @@ const EditEmployee = () => {
                             type="text"
                             value={item.description || ''}
                             onChange={(e) => updateExperience(index, 'description', e.target.value)}
-                            placeholder="Responsibilities"
+                            placeholder="Enter responsibilities, deliverables, or projects..."
                             className={inputClass}
                           />
                         </td>

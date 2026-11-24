@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
-  AlertCircle,
   Briefcase,
   Calendar,
   Check,
-  Clock,
   Copy,
   Download,
   Edit3,

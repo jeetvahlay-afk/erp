@@ -75,6 +75,22 @@ const Leaves = () => {
     load();
   }, []);
 
+  const downloadDoc = async (leave) => {
+    try {
+      const response = await api.get(`/api/leaves/${leave._id}/attachment`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', leave.attachment || `leave-document-${leave._id}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      feedback.error(getApiError(err, 'Unable to download leave document'));
+    }
+  };
+
   const submit = async () => {
     if (!form.startDate || !form.endDate || form.reason.trim().length < 3) {
       feedback.error('Select a valid date range and provide a reason.');
@@ -179,6 +195,7 @@ const Leaves = () => {
                 <th className="py-2.5 px-2">TO</th>
                 <th className="py-2.5 px-2">DAYS</th>
                 <th className="py-2.5 px-2">REASON</th>
+                <th className="py-2.5 px-2">DOCUMENT</th>
                 <th className="py-2.5 px-2">STATUS</th>
                 <th className="py-2.5 px-2">REVIEW NOTE</th>
                 <th className="py-2.5 pr-4 pl-2 text-right">SUBMITTED</th>
@@ -210,6 +227,20 @@ const Leaves = () => {
                     </td>
                     <td className="py-2.5 px-2 max-w-[200px] text-slate-600 dark:text-slate-300 truncate">
                       {leave.reason || '—'}
+                    </td>
+                    <td className="py-2.5 px-2 whitespace-nowrap">
+                      {leave.attachment ? (
+                        <button
+                          type="button"
+                          onClick={() => downloadDoc(leave)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 text-[11px] font-semibold hover:bg-blue-100 transition-colors cursor-pointer"
+                          title="Download attached document"
+                        >
+                          <Download size={11} /> Document
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-slate-400">No Document</span>
+                      )}
                     </td>
                     <td className="py-2.5 px-2">
                       <StatusBadge>{leave.status}</StatusBadge>
@@ -318,7 +349,7 @@ const Leaves = () => {
             <textarea
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              placeholder="Provide a brief reason for your leave request…"
+              placeholder="Provide detailed reason for leave (e.g. Personal family function, medical appointment, emergency travel)..."
               rows={3}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
             />

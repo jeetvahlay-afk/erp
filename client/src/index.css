@@ -9505,6 +9505,73 @@ main::-webkit-scrollbar-thumb:hover {
   }
 }
 
+/* Cartoon Twerk Choreography */
+@keyframes stickman-twerk-groove {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1, 1);
+  }
+  25% {
+    transform: translateY(6px) rotate(-4deg) scale(1.06, 0.94);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg) scale(0.96, 1.04);
+  }
+  75% {
+    transform: translateY(7px) rotate(5deg) scale(1.08, 0.92);
+  }
+}
+
+@keyframes stickman-booty-twerk {
+  0%, 100% {
+    transform: translateY(0) rotate(-6deg) scale(1, 1);
+  }
+  25% {
+    transform: translateY(-12px) rotate(14deg) scale(1.15, 0.88);
+  }
+  50% {
+    transform: translateY(4px) rotate(-10deg) scale(0.92, 1.1);
+  }
+  75% {
+    transform: translateY(-14px) rotate(-16deg) scale(1.18, 0.86);
+  }
+}
+
+@keyframes stickman-arm-twerk-left {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  50% {
+    transform: rotate(-12deg) translateY(-6px);
+  }
+}
+
+@keyframes stickman-arm-twerk-right {
+  0%, 100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  50% {
+    transform: rotate(12deg) translateY(-6px);
+  }
+}
+
+@keyframes stickman-leg-twerk-left {
+  0%, 100% {
+    transform: rotate(0deg) scaleY(1);
+  }
+  50% {
+    transform: rotate(6deg) scaleY(0.92);
+  }
+}
+
+@keyframes stickman-leg-twerk-right {
+  0%, 100% {
+    transform: rotate(0deg) scaleY(1);
+  }
+  50% {
+    transform: rotate(-6deg) scaleY(0.92);
+  }
+}
+
 @keyframes stickman-moonwalk-groove {
   0% {
     transform: translateX(-35px) scale(1, 1);

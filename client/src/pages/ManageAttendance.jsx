@@ -27,9 +27,14 @@ import api, { asArray, getApiError } from '../lib/api';
 import { downloadCsv } from '../lib/export';
 import { feedback } from '../lib/feedback';
 import { LoadingState, ErrorState, Modal, ToolbarButton } from '../components/ui/EnterpriseUI';
+import { useAuth } from '../context/AuthContext';
 
-const toLocalInput = (value) =>
-  value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+const toLocalInput = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
 
 const formatDateKey = (dateInput) => {
   if (!dateInput) return '';
@@ -47,7 +52,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-const ManageAttendance = ({ registerOnly = false }) => {
+const ManageAttendance = ({ registerOnly: _registerOnly = false }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialView = searchParams.get('view') || 'sheet';
@@ -55,7 +60,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
   const [records, setRecords] = useState([]);
   const [usersList, setUsersList] = useState([]);
   const [traineesList, setTraineesList] = useState([]);
-  const [kpis, setKpis] = useState({});
+  const [_kpis, setKpis] = useState({});
 
   const initialStaffType =
     searchParams.get('staffType') ||
@@ -73,9 +78,13 @@ const ManageAttendance = ({ registerOnly = false }) => {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [calendarSelectedDate, setCalendarSelectedDate] = useState(() => new Date());
 
+  const { user } = useAuth();
+  const isDepartmentScoped = user?.dataScope === 'department' && Boolean(user?.department);
+  const userDept = isDepartmentScoped ? user.department : null;
+
   // Filters
   const [search, setSearch] = useState('');
-  const [department, setDepartment] = useState('All Departments');
+  const [department, setDepartment] = useState(isDepartmentScoped && userDept ? userDept : 'All Departments');
   const [employeeFilter, setEmployeeFilter] = useState('All Employees');
   const [shiftFilter, setShiftFilter] = useState('All Shifts');
   const [statusFilter, setStatusFilter] = useState('All Status');
@@ -96,9 +105,10 @@ const ManageAttendance = ({ registerOnly = false }) => {
     setLoading(true);
     setError('');
     try {
+      const todayParam = formatDateKey(new Date());
       const [recordRes, dashboardRes, usersRes, interviewsRes] = await Promise.allSettled([
         api.get('/api/attendance'),
-        api.get('/api/dashboard/attendance'),
+        api.get('/api/dashboard/attendance', { params: { date: todayParam } }),
         api.get('/api/users?limit=300'),
         api.get('/api/interviews'),
       ]);
@@ -118,6 +128,9 @@ const ManageAttendance = ({ registerOnly = false }) => {
       if (interviewsRes.status === 'fulfilled') {
         const iData = asArray(interviewsRes.value.data);
         rawTrainees = iData.filter((cand) => {
+          if (isDepartmentScoped && userDept && cand.department && cand.department !== userDept) {
+            return false;
+          }
           const stage = String(cand.stage || '').toLowerCase();
           const status = String(cand.status || '').toLowerCase();
           return (
@@ -220,7 +233,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
           checkOut: '—',
           workHours: '—',
           totalHours: 0,
-          status: 'Present',
+          status: 'Absent',
           isTrainee: true,
           rawRecord: null,
         };
@@ -252,15 +265,17 @@ const ManageAttendance = ({ registerOnly = false }) => {
 
   // Distinct departments and employees across all records and users
   const uniqueDepartments = useMemo(() => {
+    if (isDepartmentScoped && userDept) return [userDept];
     const depts = new Set();
     records.forEach((r) => r.department && depts.add(r.department));
     usersList.forEach((u) => u.department && depts.add(u.department));
     traineesList.forEach((t) => {
-      if (t.candidatePost) depts.add(t.candidatePost);
-      if (t.branch) depts.add(t.branch);
+      if (t.department) depts.add(t.department);
+      else if (t.candidatePost) depts.add(t.candidatePost);
+      else if (t.branch) depts.add(t.branch);
     });
     return [...depts].sort();
-  }, [records, usersList, traineesList]);
+  }, [records, usersList, traineesList, isDepartmentScoped, userDept]);
 
   const uniqueEmployeeNames = useMemo(() => {
     const names = new Set();
@@ -275,6 +290,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
     const map = new Map();
     // Add all registered users
     usersList.forEach((u) => {
+      if (isDepartmentScoped && userDept && u.department && u.department !== userDept) return;
       const id = String(u._id || u.id || u.employeeId || '');
       const isUserTrainee =
         u.employmentType === 'Intern' ||
@@ -282,8 +298,13 @@ const ManageAttendance = ({ registerOnly = false }) => {
         String(u.designation || '').toLowerCase().includes('trainee') ||
         String(u.designation || '').toLowerCase().includes('intern');
 
+      const rawJoinDate = u.joiningDate || u.probationStartDate || u.createdAt;
+      const joinDateKey = rawJoinDate ? formatDateKey(new Date(rawJoinDate)) : null;
+
       if (id) {
         map.set(id, {
+          id: u._id || u.id,
+          _id: u._id || u.id,
           userId: u._id || u.id,
           employeeId: u.employeeId || 'EMP',
           name: u.name || 'Staff Member',
@@ -293,35 +314,49 @@ const ManageAttendance = ({ registerOnly = false }) => {
           shift: u.shift || 'General',
           isTrainee: isUserTrainee,
           traineeStatus: isUserTrainee ? 'In Training' : null,
+          branch: u.branch || 'Ahmedabad',
+          joinDateKey,
+          joiningDate: rawJoinDate ? new Date(rawJoinDate) : null,
         });
       }
     });
 
     // Add trainee candidates from recruitment
     traineesList.forEach((cand, idx) => {
+      if (isDepartmentScoped && userDept && cand.department && cand.department !== userDept) return;
       const id = String(cand._id || `trn_${idx}`);
+      const rawJoinDate = cand.probationStartDate || cand.joiningDate || cand.entryDate || cand.interviewDate || cand.createdAt;
+      const joinDateKey = rawJoinDate ? formatDateKey(new Date(rawJoinDate)) : null;
+
       if (!map.has(id)) {
         map.set(id, {
-          userId: id,
+          id: cand._id || id,
+          _id: cand._id || id,
+          userId: cand._id || id,
           employeeId: cand.phoneNumber ? `TRN-${cand.phoneNumber.slice(-4)}` : `TRN-${String(idx + 1).padStart(3, '0')}`,
           name: cand.candidateName,
           email: cand.email || cand.phoneNumber || '—',
           avatar: '',
-          department: cand.candidatePost || cand.branch || 'Training',
+          department: cand.department || cand.candidatePost || cand.branch || 'Training',
           shift: 'General',
           isTrainee: true,
           traineeStatus: cand.status || cand.trainingStatus || 'Ongoing',
           branch: cand.branch || 'Ahmedabad',
           rawCandidate: cand,
+          joinDateKey,
+          joiningDate: rawJoinDate ? new Date(rawJoinDate) : null,
         });
       }
     });
 
     // Add any employees from records who might not be in usersList
     records.forEach((r) => {
+      if (isDepartmentScoped && userDept && r.department && r.department !== userDept) return;
       const id = String(r.userId || r.employeeId);
       if (!map.has(id)) {
         map.set(id, {
+          id: r.userId || r._id,
+          _id: r.userId || r._id,
           userId: r.userId,
           employeeId: r.employeeId,
           name: r.name,
@@ -331,12 +366,13 @@ const ManageAttendance = ({ registerOnly = false }) => {
           shift: r.shift,
           isTrainee: Boolean(r.isTrainee),
           traineeStatus: r.isTrainee ? 'In Training' : null,
+          joinDateKey: r.dateKey || null,
         });
       }
     });
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [usersList, traineesList, records]);
+  }, [usersList, traineesList, records, isDepartmentScoped, userDept]);
 
   // Filtered employees for Sheet View
   const filteredEmployees = useMemo(() => {
@@ -348,8 +384,9 @@ const ManageAttendance = ({ registerOnly = false }) => {
         emp.email.toLowerCase().includes(search.toLowerCase()) ||
         (emp.isTrainee && 'trainee'.includes(search.toLowerCase()));
 
-      const matchesDept =
-        department === 'All Departments' || emp.department === department;
+      const matchesDept = isDepartmentScoped && userDept
+        ? emp.department === userDept
+        : (department === 'All Departments' || emp.department === department);
 
       const matchesEmp =
         employeeFilter === 'All Employees' || emp.name === employeeFilter;
@@ -361,7 +398,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
 
       return matchesSearch && matchesDept && matchesEmp && matchesStaffType;
     });
-  }, [allEmployees, search, department, employeeFilter, staffTypeFilter]);
+  }, [allEmployees, search, department, employeeFilter, staffTypeFilter, isDepartmentScoped, userDept]);
 
   // Filtered attendance records for Regular View
   const filteredRecords = useMemo(() => {
@@ -373,8 +410,9 @@ const ManageAttendance = ({ registerOnly = false }) => {
         rec.email.toLowerCase().includes(search.toLowerCase()) ||
         (rec.isTrainee && 'trainee'.includes(search.toLowerCase()));
 
-      const matchesDept =
-        department === 'All Departments' || rec.department === department;
+      const matchesDept = isDepartmentScoped && userDept
+        ? rec.department === userDept
+        : (department === 'All Departments' || rec.department === department);
 
       const matchesEmp =
         employeeFilter === 'All Employees' || rec.name === employeeFilter;
@@ -392,7 +430,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
 
       return matchesSearch && matchesDept && matchesEmp && matchesShift && matchesStatus && matchesStaffType;
     });
-  }, [records, search, department, employeeFilter, shiftFilter, statusFilter, staffTypeFilter]);
+  }, [records, search, department, employeeFilter, shiftFilter, statusFilter, staffTypeFilter, isDepartmentScoped, userDept]);
 
   // Attendance lookup by `${userId || employeeId}_${dateKey}`
   const attendanceLookup = useMemo(() => {
@@ -517,8 +555,11 @@ const ManageAttendance = ({ registerOnly = false }) => {
             stats.set(dKey, { present: 0, late: 0, halfDay: 0, absent: 0, total: 0 });
           }
           const entry = stats.get(dKey);
+          const activeStaffOnDate = filteredEmployees.filter(
+            (emp) => !emp.joinDateKey || emp.joinDateKey <= dKey
+          ).length;
           const attendedOrExplicit = entry.present + entry.late + entry.halfDay + entry.absent;
-          const unrecordedAbsent = Math.max(0, staffCount - attendedOrExplicit);
+          const unrecordedAbsent = Math.max(0, activeStaffOnDate - attendedOrExplicit);
           entry.absent += unrecordedAbsent;
           entry.total = entry.present + entry.late + entry.halfDay + entry.absent;
         }
@@ -548,9 +589,14 @@ const ManageAttendance = ({ registerOnly = false }) => {
         return existing;
       }
 
+      // Check if employee had not joined yet
+      const isBeforeJoining = emp.joinDateKey && calSelectedDateKey < emp.joinDateKey;
+
       // If no punch record exists: determine virtual status
       let status = 'Absent';
-      if (!isPastOrToday) {
+      if (isBeforeJoining) {
+        status = 'Not Joined';
+      } else if (!isPastOrToday) {
         status = 'Scheduled';
       } else if (isSelectedDateWeekend) {
         status = 'Off';
@@ -655,6 +701,8 @@ const ManageAttendance = ({ registerOnly = false }) => {
             else if (rec.status === 'Half Day') hdCount++;
             else if (rec.status === 'Absent') aCount++;
             totalHrs += rec.totalHours || 0;
+          } else if (emp.joinDateKey && dayObj.dateKey < emp.joinDateKey) {
+            statusText = '—';
           } else if (dayObj.isWeekend) {
             statusText = 'WO';
           } else if (dayObj.dateKey <= todayKey) {
@@ -724,8 +772,11 @@ const ManageAttendance = ({ registerOnly = false }) => {
   const openEditModal = (rec) => {
     setSelectedRecord(rec);
     const raw = rec.rawRecord;
+    const initialStatus = ['Present', 'Late', 'Half Day', 'Absent'].includes(rec.status)
+      ? rec.status
+      : 'Present';
     setEditForm({
-      status: rec.status || 'Present',
+      status: initialStatus,
       loginTime: toLocalInput(raw?.loginTime),
       logoutTime: toLocalInput(raw?.logoutTime),
       reason: raw?.manualOverrideReason || '',
@@ -736,18 +787,38 @@ const ManageAttendance = ({ registerOnly = false }) => {
     if (!selectedRecord) return;
     setSubmitting(true);
     try {
+      const validStatus = ['Present', 'Late', 'Half Day', 'Absent'].includes(editForm.status)
+        ? editForm.status
+        : 'Present';
+
       if (selectedRecord.rawRecord?._id) {
         await api.patch(`/api/attendance/${selectedRecord.rawRecord._id}`, {
-          status: editForm.status,
+          status: validStatus,
           loginTime: editForm.loginTime || null,
           logoutTime: editForm.logoutTime || null,
           reason: editForm.reason || 'Manual attendance update by admin',
         });
       } else {
+        const targetUserId =
+          selectedRecord.userId ||
+          selectedRecord.id ||
+          selectedRecord.user?._id ||
+          (typeof selectedRecord.user === 'string' ? selectedRecord.user : null) ||
+          selectedRecord.employeeId;
+
+        if (!targetUserId) {
+          feedback.error('Unable to identify employee for attendance update');
+          return;
+        }
+
+        const dateVal = selectedRecord.dateKey ||
+          (selectedRecord.date ? new Date(selectedRecord.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+
         await api.post('/api/attendance/manual-update', {
-          userId: selectedRecord.userId || selectedRecord.user?._id || selectedRecord._id,
-          date: selectedRecord.dateKey || selectedRecord.date || new Date(),
-          status: editForm.status,
+          userId: targetUserId,
+          employeeId: selectedRecord.employeeId,
+          date: dateVal,
+          status: validStatus,
           loginTime: editForm.loginTime || null,
           logoutTime: editForm.logoutTime || null,
           reason: editForm.reason || 'Manual attendance update by admin',
@@ -763,24 +834,62 @@ const ManageAttendance = ({ registerOnly = false }) => {
     }
   };
 
+  // Scope determination: respect Trainee view or filters
+  const isTraineeScope = staffTypeFilter === 'Trainees' || activeTab === 'Trainee Attendance Sheet';
+  const isEmployeeScope = staffTypeFilter === 'Employees';
+
+  const kpiScopeLabel = isTraineeScope ? 'Total Trainees' : isEmployeeScope ? 'Total Employees' : 'Total Staff';
+  const kpiScopeHelper = isTraineeScope ? 'Active trainee roster' : isEmployeeScope ? 'Active employee roster' : 'Active company roster';
+
+  // Determine scoped roster
+  const currentScopeEmployees = useMemo(() => {
+    return allEmployees.filter((emp) => {
+      if (isTraineeScope && !emp.isTrainee) return false;
+      if (isEmployeeScope && emp.isTrainee) return false;
+      if (department !== 'All Departments' && emp.department !== department) return false;
+      return true;
+    });
+  }, [allEmployees, isTraineeScope, isEmployeeScope, department]);
+
+  // Eligible employees on today's date (joined on or before today)
+  const eligibleStaffToday = useMemo(() => {
+    return currentScopeEmployees.filter((emp) => !emp.joinDateKey || emp.joinDateKey <= todayKey);
+  }, [currentScopeEmployees, todayKey]);
+
+  const totalEmployeesCount = eligibleStaffToday.length;
+
+  // Actual records for today within this scope
+  const todayRecordsForScope = useMemo(() => {
+    const scopeEmpIds = new Set(
+      currentScopeEmployees.flatMap((e) => [
+        String(e.id || ''),
+        String(e._id || ''),
+        String(e.userId || ''),
+        String(e.employeeId || ''),
+      ].filter(Boolean))
+    );
+    const scopeNames = new Set(currentScopeEmployees.map((e) => e.name).filter(Boolean));
+
+    return records.filter((r) => {
+      if (r.dateKey !== todayKey) return false;
+      const uid = String(r.userId || r.rawRecord?.user?._id || r.rawRecord?.user || '');
+      const eid = String(r.employeeId || '');
+      return scopeEmpIds.has(uid) || scopeEmpIds.has(eid) || (r.name && scopeNames.has(r.name));
+    });
+  }, [records, todayKey, currentScopeEmployees]);
+
+  const presentToday = todayRecordsForScope.filter(
+    (r) => r.status === 'Present' || r.status === 'Late' || r.status === 'Half Day'
+  ).length;
+
+  const lateToday = todayRecordsForScope.filter(
+    (r) => r.status === 'Late' || r.isLateCheckIn
+  ).length;
+
+  const absentToday = Math.max(0, totalEmployeesCount - presentToday);
+
   if (loading && !records.length) return <LoadingState label="Loading attendance register…" />;
   if (error && !records.length) return <ErrorState message={error} retry={load} />;
-
-  const todayAttendanceRecords = records.filter((r) => r.dateKey === todayKey);
-  const totalEmployeesCount = (kpis.totalEmployees && kpis.totalEmployees > 0)
-    ? kpis.totalEmployees
-    : (kpis.activeEmployees && kpis.activeEmployees > 0
-      ? kpis.activeEmployees
-      : (allEmployees.length || 0));
-  const presentToday = (typeof kpis.present === 'number' && kpis.present >= 0)
-    ? kpis.present
-    : todayAttendanceRecords.filter((r) => r.status === 'Present' || r.status === 'Late' || r.status === 'Half Day').length;
-  const lateToday = (typeof kpis.late === 'number' && kpis.late >= 0)
-    ? kpis.late
-    : todayAttendanceRecords.filter((r) => r.status === 'Late').length;
-  const absentToday = (typeof kpis.absent === 'number' && kpis.absent >= 0)
-    ? kpis.absent
-    : Math.max(0, totalEmployeesCount - presentToday);
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 space-y-4 sm:space-y-4.5 w-full max-w-[1920px] mx-auto text-slate-800 dark:text-slate-100 pb-12">
@@ -892,12 +1001,12 @@ const ManageAttendance = ({ registerOnly = false }) => {
             <Users size={20} />
           </div>
           <div className="min-w-0">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">Total Staff</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">{kpiScopeLabel}</span>
             <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight leading-none my-1">
               {totalEmployeesCount}
             </div>
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">
-              Active company roster
+              {kpiScopeHelper}
             </span>
           </div>
         </div>
@@ -1093,12 +1202,19 @@ const ManageAttendance = ({ registerOnly = false }) => {
           <select
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
-            className="appearance-none bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl pl-8 pr-8 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors focus:outline-none cursor-pointer"
+            disabled={Boolean(isDepartmentScoped && userDept)}
+            className="appearance-none bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl pl-8 pr-8 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed"
           >
-            <option>All Departments</option>
-            {uniqueDepartments.map((dept) => (
-              <option key={dept}>{dept}</option>
-            ))}
+            {isDepartmentScoped && userDept ? (
+              <option value={userDept}>{userDept} (Assigned Dept)</option>
+            ) : (
+              <>
+                <option>All Departments</option>
+                {uniqueDepartments.map((dept) => (
+                  <option key={dept}>{dept}</option>
+                ))}
+              </>
+            )}
           </select>
           <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
@@ -1653,16 +1769,35 @@ const ManageAttendance = ({ registerOnly = false }) => {
                               );
                             }
 
+                            // Check if date is before employee / trainee joined
+                            const isBeforeJoining = emp.joinDateKey && dayObj.dateKey < emp.joinDateKey;
+                            if (isBeforeJoining) {
+                              return (
+                                <td
+                                  key={dayObj.dayNumber}
+                                  className="p-1 border-r border-slate-100 dark:border-slate-800 text-slate-300 dark:text-slate-600 font-normal select-none"
+                                  title={`${emp.name} — Not joined yet (${dayObj.dateKey} is before joining date ${emp.joinDateKey})`}
+                                >
+                                  —
+                                </td>
+                              );
+                            }
+
                             // No attendance record found for this day - generate clickable fallback
                             const isPastOrToday = dayObj.dateKey <= todayKey;
                             const fallbackRec = {
-                              userId: emp.id,
+                              id: emp.userId || emp.id || emp._id,
+                              _id: emp.userId || emp.id || emp._id,
+                              userId: emp.userId || emp.id || emp._id,
+                              employeeId: emp.employeeId,
                               name: emp.name,
                               department: emp.department,
                               date: dayObj.dateKey,
                               dateKey: dayObj.dateKey,
-                              status: isPastOrToday ? (emp.isTrainee ? 'Present' : 'Absent') : 'Present',
+                              status: isPastOrToday ? 'Absent' : 'Present',
                               rawRecord: null,
+                              isTrainee: emp.isTrainee,
+                              rawCandidate: emp.rawCandidate,
                             };
 
                             if (dayObj.isWeekend) {
@@ -1678,24 +1813,8 @@ const ManageAttendance = ({ registerOnly = false }) => {
                               );
                             }
 
-                            // Weekday with no record
+                            // Weekday with no record on or after joining
                             if (isPastOrToday) {
-                              if (emp.isTrainee) {
-                                pTotal++;
-                                return (
-                                  <td
-                                    key={dayObj.dayNumber}
-                                    onClick={() => openEditModal(fallbackRec)}
-                                    className="p-1 border-r border-slate-100 dark:border-slate-800 cursor-pointer"
-                                    title={`${emp.name} — ${dayObj.dateKey}: Trainee Session Present [Click to update]`}
-                                  >
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded text-[10px] font-bold border transition-transform hover:scale-110 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-700">
-                                      P
-                                    </span>
-                                  </td>
-                                );
-                              }
-
                               aTotal++;
                               return (
                                 <td
@@ -2040,19 +2159,6 @@ const ManageAttendance = ({ registerOnly = false }) => {
         }
       >
         <div className="space-y-4 text-xs">
-          {/* Security & Audit Trail Notice Banner */}
-          <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-900/50 text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
-            <Fingerprint size={16} className="text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <p className="font-bold text-[11px] uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                Audit Trail Logged
-              </p>
-              <p className="text-[11px] leading-relaxed text-blue-800/90 dark:text-blue-300/90">
-                This update will be permanently logged under your admin account with the previous and new status, timestamp, and optional reason.
-              </p>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
@@ -2100,7 +2206,7 @@ const ManageAttendance = ({ registerOnly = false }) => {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Regularized by HR, Biometric issue, Approved client visit"
+                placeholder="Enter reason for attendance update..."
                 className="w-full bg-slate-50 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
                 value={editForm.reason || ''}
                 onChange={(e) => setEditForm({ ...editForm, reason: e.target.value })}

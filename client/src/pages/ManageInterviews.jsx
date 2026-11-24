@@ -2,17 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
-  Briefcase,
+  CalendarDays,
   ChevronDown,
   Download,
   Edit3,
   ExternalLink,
   Eye,
+  FileSignature,
   FileText,
   Link2,
   Plus,
   RotateCcw,
   Trash2,
+  Upload,
+  Users,
 } from 'lucide-react';
 import api, { asArray, getApiError } from '../lib/api';
 import { downloadCsv } from '../lib/export';
@@ -29,24 +32,20 @@ import {
   ToolbarButton,
 } from '../components/ui/EnterpriseUI';
 import CandidateDetailsModal, { getStageKeyForStatus } from '../components/CandidateDetailsModal';
+import PhoneInputField from '../components/PhoneInputField';
+import AgreementModule from '../components/AgreementModule';
+import { validatePhoneNumber } from '../constants/countryCodes';
 
 const BRANCH_OPTIONS = [
   'Ahmedabad',
-  'Surat',
   'Vadodara',
-  'Rajkot',
-  'Mumbai',
-  'Pune',
-  'Bangalore',
-  'Delhi',
-  'Remote',
 ];
 
 const SECTIONS = {
   daily: {
     id: 'daily',
-    title: 'Daily Candidate Update',
-    subtitle: '',
+    title: 'Daily Candidates',
+    subtitle: 'Daily candidate records, interview call scheduling, callbacks and status tracking',
     tabs: [
       { id: 'New candidates info', label: 'New candidates info' },
       { id: 'Interview Scheduled', label: 'Interview Scheduled' },
@@ -54,23 +53,11 @@ const SECTIONS = {
       { id: 'No Response', label: 'No Response' },
     ],
   },
-  assessment: {
-    id: 'assessment',
-    title: 'Assessment Update',
-    subtitle: '',
-    tabs: [
-      { id: 'Pending', label: 'Pending' },
-      { id: 'Running', label: 'Running' },
-      { id: 'Red', label: 'Red' },
-      { id: 'Yellow', label: 'Yellow' },
-      { id: 'Green', label: 'Green' },
-    ],
-  },
   interview: {
     id: 'interview',
-    title: 'Interview Candidate Updates',
+    title: 'Candidate Pipeline',
     subtitle:
-      'Comprehensive interview log, HR & CSM evaluations, joining & onboarding status',
+      'Comprehensive interview evaluation stages, HR & technical rounds, selection and rejection records',
     tabs: [
       { id: '1st Round', label: '1st Round' },
       { id: '2nd Round', label: '2nd Round' },
@@ -78,10 +65,23 @@ const SECTIONS = {
       { id: 'Rejected', label: 'Rejected' },
     ],
   },
+  assessment: {
+    id: 'assessment',
+    title: 'Candidate Assessment',
+    subtitle: 'Candidate test evaluations, exam performance scores and online exam screening',
+    tabs: [
+      { id: 'Pending', label: 'Pending Assessment' },
+      { id: 'Running', label: 'Running Assessment' },
+      { id: 'Red', label: 'Red (Failed)' },
+      { id: 'Yellow', label: 'Yellow (Review)' },
+      { id: 'Green', label: 'Green (Passed)' },
+      { id: 'Assessment Done', label: 'Assessment Done' },
+    ],
+  },
   training: {
     id: 'training',
     title: 'Training Candidates',
-    subtitle: 'Manage training batches, enrolled candidates & induction status',
+    subtitle: 'Manage training batches, enrolled candidates & monthly attendance',
     tabs: [
       { id: 'All Trainees', label: 'All Trainees' },
       { id: 'Ongoing', label: 'Ongoing' },
@@ -89,6 +89,16 @@ const SECTIONS = {
       { id: 'Ineligible', label: 'Ineligible' },
       { id: 'Left', label: 'Left' },
       { id: 'Discontinued', label: 'Discontinued' },
+    ],
+  },
+  agreements: {
+    id: 'agreements',
+    title: 'Agreements & Joining',
+    subtitle: 'Candidate & employee agreements, policies, joining date assignment & signed vault',
+    tabs: [
+      { id: 'studio', label: 'Agreement Studio & Editor' },
+      { id: 'vault', label: 'Signed Vault' },
+      { id: 'joining', label: 'Joining Date & Final Stage' },
     ],
   },
 };
@@ -100,25 +110,7 @@ const getSectionForRecord = (record) => {
   const trainingNorm = normalizeStatus(record.trainingStatus);
   const stageNorm = normalizeStatus(record.stage);
 
-  // 1. Assessment Update pipeline (Pending, Running, Red, Yellow, Green, Assessment Done)
-  if (
-    ['pending', 'running', 'red', 'yellow', 'green'].includes(norm) ||
-    norm.includes('assessment')
-  ) {
-    return 'assessment';
-  }
-
-  // 2. Interview Candidate Updates pipeline (1st Round, 2nd Round, Selected, Rejected)
-  if (
-    norm.includes('1st round') ||
-    norm.includes('2nd round') ||
-    norm === 'selected' ||
-    norm === 'rejected'
-  ) {
-    return 'interview';
-  }
-
-  // 3. Training Candidates pipeline
+  // 1. Training Candidates
   if (
     [
       'all trainees',
@@ -131,9 +123,30 @@ const getSectionForRecord = (record) => {
       'training candidates',
       'training',
     ].includes(norm) ||
-    ['ongoing', 'completed', 'ineligible', 'left', 'discontinued'].includes(trainingNorm)
+    ['ongoing', 'completed', 'ineligible', 'left', 'discontinued'].includes(trainingNorm) ||
+    stageNorm.includes('training')
   ) {
     return 'training';
+  }
+
+  // 2. Candidate Assessment (Online Exams & Scores)
+  if (
+    ['pending', 'running', 'red', 'yellow', 'green', 'assessment done'].includes(norm) ||
+    norm.includes('assessment') ||
+    stageNorm.includes('assessment')
+  ) {
+    return 'assessment';
+  }
+
+  // 3. Candidate Pipeline (1st Round, 2nd Round, Selected, Rejected)
+  if (
+    norm.includes('1st round') ||
+    norm.includes('2nd round') ||
+    norm === 'selected' ||
+    norm === 'rejected' ||
+    stageNorm.includes('interview')
+  ) {
+    return 'interview';
   }
 
   // 4. Daily Candidates Update pipeline
@@ -149,9 +162,9 @@ const getSectionForRecord = (record) => {
   }
 
   // Fallback to stage if defined
+  if (stageNorm.includes('training')) return 'training';
   if (stageNorm.includes('assessment')) return 'assessment';
   if (stageNorm.includes('interview')) return 'interview';
-  if (stageNorm.includes('training')) return 'training';
   return 'daily';
 };
 
@@ -183,6 +196,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const emptyForm = () => ({
   candidateName: '',
+  countryCode: '+91',
   phoneNumber: '',
   email: '',
   gender: '',
@@ -208,67 +222,83 @@ const emptyForm = () => ({
 const validateCandidateForm = (formData) => {
   const errors = {};
 
-  // Candidate Name * (Required, letters, 2-120 chars)
+  // 1. Candidate Name * (Required, letters, 2-100 chars)
   const name = String(formData.candidateName || '').trim();
   if (!name) {
     errors.candidateName = 'Candidate Name is required.';
   } else if (name.length < 2) {
     errors.candidateName = 'Candidate Name must be at least 2 characters.';
-  } else if (name.length > 120) {
-    errors.candidateName = 'Candidate Name must not exceed 120 characters.';
-  } else if (!/[a-zA-Z]/.test(name)) {
-    errors.candidateName = 'Candidate Name must contain valid letters.';
+  } else if (name.length > 100) {
+    errors.candidateName = 'Candidate Name must not exceed 100 characters.';
+  } else if (!/^[a-zA-Z\s.'-]+$/.test(name)) {
+    errors.candidateName = 'Candidate Name must contain valid letters without numbers or special symbols.';
   }
 
-  // Mobile / Phone * (Required, 7-15 digits)
-  const phone = String(formData.phoneNumber || '').trim();
-  const digitsOnly = phone.replace(/\D/g, '');
-  if (!phone) {
-    errors.phoneNumber = 'Mobile / Phone number is required.';
-  } else if (digitsOnly.length < 7 || digitsOnly.length > 15) {
-    errors.phoneNumber = 'Phone number must contain between 7 and 15 digits.';
-  } else if (!/^\+?[0-9\s-]{7,20}$/.test(phone)) {
-    errors.phoneNumber = 'Please enter a valid phone number (e.g. +91 98765 43210).';
+  // 2. Mobile / Phone Number * (Validated according to country code standards)
+  const phoneErr = validatePhoneNumber(formData.countryCode || '+91', formData.phoneNumber);
+  if (phoneErr) {
+    errors.phoneNumber = phoneErr;
   }
 
-  // Email (Optional, but validated if entered)
+  // 3. Candidate Post * (Mandatory role)
+  const post = String(formData.candidatePost || '').trim();
+  if (!post) {
+    errors.candidatePost = 'Candidate Post / Designation is required.';
+  } else if (post.length < 2) {
+    errors.candidatePost = 'Candidate Post must be at least 2 characters.';
+  } else if (post.length > 120) {
+    errors.candidatePost = 'Candidate Post must not exceed 120 characters.';
+  }
+
+  // 4. Entry Date *
+  if (!formData.entryDate) {
+    errors.entryDate = 'Entry Date is required.';
+  } else if (isNaN(new Date(formData.entryDate).getTime())) {
+    errors.entryDate = 'Please select a valid entry date.';
+  }
+
+  // 5. Schedule Interview Date & Time validation
+  const statusNorm = String(formData.status || '').toLowerCase().trim();
+  const isScheduledStatus = statusNorm.includes('scheduled') || statusNorm.includes('reschedule');
+  if (isScheduledStatus && !formData.interviewDate) {
+    errors.interviewDate = 'Schedule Interview Date is required when status is Interview Scheduled / Rescheduled.';
+  } else if (formData.interviewDate) {
+    const interviewD = new Date(formData.interviewDate);
+    if (isNaN(interviewD.getTime())) {
+      errors.interviewDate = 'Please select a valid scheduled interview date.';
+    }
+  }
+
+  // 6. Branch (Ahmedabad or Vadodara)
+  const branch = String(formData.branch || '').trim();
+  if (!branch) {
+    errors.branch = 'Branch selection is required.';
+  } else if (!BRANCH_OPTIONS.includes(branch)) {
+    errors.branch = 'Branch must be either Ahmedabad or Vadodara.';
+  }
+
+  // 7. Comments / Notes * (Mandatory, min 5 chars)
+  const notes = String(formData.comments || formData.remarks || '').trim();
+  if (!notes) {
+    errors.comments = 'Comments / Notes are mandatory (minimum 5 characters).';
+  } else if (notes.length < 5) {
+    errors.comments = 'Comments / Notes must be at least 5 characters long.';
+  } else if (notes.length > 2000) {
+    errors.comments = 'Comments / Notes must not exceed 2000 characters.';
+  }
+
+  // 8. Email (Optional, but validated if entered)
   const emailVal = String(formData.email || '').trim();
   if (emailVal) {
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!emailRegex.test(emailVal)) {
-      errors.email = 'Please enter a valid email address (e.g. rahul.sharma@example.com).';
+      errors.email = 'Please enter a valid email address.';
     } else if (emailVal.length > 254) {
       errors.email = 'Email address must not exceed 254 characters.';
     }
   }
 
-  // Comments / Notes * (Mandatory, min 5 chars)
-  const notes = String(formData.comments || formData.remarks || '').trim();
-  if (!notes) {
-    errors.comments = 'Comments / Notes are mandatory.';
-  } else if (notes.length < 5) {
-    errors.comments = 'Comments / Notes must be at least 5 characters long.';
-  }
-
-  // Designation / Candidate Post (if provided, min 2 chars)
-  const post = String(formData.candidatePost || '').trim();
-  if (post && post.length < 2) {
-    errors.candidatePost = 'Designation must be at least 2 characters.';
-  } else if (post.length > 120) {
-    errors.candidatePost = 'Designation must not exceed 120 characters.';
-  }
-
-  // Entry Date
-  if (formData.entryDate && isNaN(new Date(formData.entryDate).getTime())) {
-    errors.entryDate = 'Please select a valid entry date.';
-  }
-
-  // Schedule Interview Date & Time consistency
-  if (formData.interviewTime && !formData.interviewDate) {
-    errors.interviewDate = 'Please select an interview date for the scheduled time.';
-  }
-
-  // CV / Resume Link length
+  // 9. CV / Resume Link length
   const cv = String(formData.cvUrl || '').trim();
   if (cv && cv.length > 500) {
     errors.cvUrl = 'CV link must not exceed 500 characters.';
@@ -284,12 +314,23 @@ const ManageInterviews = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Active Main Section (daily | interview | training)
-  const activeSectionKey = searchParams.get('section') || 'daily';
-  const setMainSection = (key) => {
-    setSearchParams({ section: key });
-    // Reset active subtab to the first tab of the section
-    const sec = SECTIONS[key] || SECTIONS.daily;
+  // Active Main Section (daily | interview | assessment | training | agreements)
+  const rawSection = searchParams.get('section') || 'daily';
+  const activeSectionKey = SECTIONS[rawSection] ? rawSection : 'daily';
+  const [selectedAgreementCandidateId, setSelectedAgreementCandidateId] = useState(
+    searchParams.get('candidateId') || ''
+  );
+
+  useEffect(() => {
+    const cid = searchParams.get('candidateId') || '';
+    setSelectedAgreementCandidateId(cid);
+  }, [searchParams]);
+
+  const setMainSection = (key, extraParams = {}) => {
+    const targetKey = SECTIONS[key] ? key : 'daily';
+    const nextParams = { section: targetKey, ...extraParams };
+    setSearchParams(nextParams);
+    const sec = SECTIONS[targetKey] || SECTIONS.daily;
     setActiveSubTab(sec.tabs[0].id);
   };
 
@@ -297,6 +338,7 @@ const ManageInterviews = () => {
   const [activeSubTab, setActiveSubTab] = useState(currentSection.tabs[0].id);
 
   const [records, setRecords] = useState([]);
+  const [agreementsVaultCount, setAgreementsVaultCount] = useState(0);
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
   const [selected, setSelected] = useState(null);
@@ -307,6 +349,38 @@ const ManageInterviews = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingCv, setUploadingCv] = useState(false);
+  const [cvFileName, setCvFileName] = useState('');
+
+  const handleUploadCvFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      feedback.error('File exceeds 25MB maximum size limit.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setUploadingCv(true);
+      const res = await api.post('/api/interviews/upload-cv', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const uploadedUrl = res.data.cvUrl;
+      handleFieldChange('cvUrl', uploadedUrl);
+      setCvFileName(res.data.fileName || file.name);
+      feedback.success(`CV "${res.data.fileName || file.name}" attached successfully!`);
+    } catch (err) {
+      feedback.error(getApiError(err, 'Failed to upload CV document'));
+    } finally {
+      setUploadingCv(false);
+      e.target.value = '';
+    }
+  };
 
   const handleFieldChange = (field, value) => {
     let updatedForm = { ...form, [field]: value };
@@ -333,7 +407,7 @@ const ManageInterviews = () => {
 
     setForm(updatedForm);
 
-    if (touched[field]) {
+    if (touched[field] || Object.keys(formErrors).length > 0) {
       const { errors } = validateCandidateForm(updatedForm);
       setFormErrors(errors);
     }
@@ -343,6 +417,16 @@ const ManageInterviews = () => {
     setTouched((prev) => ({ ...prev, [field]: true }));
     const { errors } = validateCandidateForm(form);
     setFormErrors(errors);
+  };
+
+  const loadAgreementsCount = async () => {
+    try {
+      const res = await api.get('/api/agreements');
+      const list = asArray(res.data);
+      setAgreementsVaultCount(list.filter((a) => a.status === 'signed' || a.candidateHasSigned).length);
+    } catch {
+      // ignore
+    }
   };
 
   const load = async () => {
@@ -360,6 +444,7 @@ const ManageInterviews = () => {
 
   useEffect(() => {
     load();
+    loadAgreementsCount();
   }, []);
 
   // Synchronize active subtab when switching section
@@ -377,17 +462,18 @@ const ManageInterviews = () => {
       'Interview Scheduled': 0,
       Rescheduled: 0,
       'No Response': 0,
+      // Interview
+      '1st Round': 0,
+      '2nd Round': 0,
+      Selected: 0,
+      Rejected: 0,
       // Assessment
       Pending: 0,
       Running: 0,
       Red: 0,
       Yellow: 0,
       Green: 0,
-      // Interview
-      '1st Round': 0,
-      '2nd Round': 0,
-      Selected: 0,
-      Rejected: 0,
+      'Assessment Done': 0,
       // Training
       'All Trainees': 0,
       Ongoing: 0,
@@ -395,54 +481,97 @@ const ManageInterviews = () => {
       Ineligible: 0,
       Left: 0,
       Discontinued: 0,
+      // Agreements
+      studio: records.length,
+      vault: agreementsVaultCount,
+      joining: 0,
     };
 
     records.forEach((record) => {
-      const sec = getSectionForRecord(record);
       const norm = normalizeStatus(record.status);
       const tNorm = normalizeStatus(record.trainingStatus);
+      const stageNorm = normalizeStatus(record.stage);
 
-      if (sec === 'daily') {
-        if (norm.includes('new candidate')) result['New candidates info'] += 1;
-        else if (norm.includes('interview scheduled') || norm === 'scheduled')
-          result['Interview Scheduled'] += 1;
-        else if (norm.includes('reschedule')) result['Rescheduled'] += 1;
-        else if (norm.includes('no response') || norm.includes('no respones'))
-          result['No Response'] += 1;
-        else result['New candidates info'] += 1;
-      } else if (sec === 'assessment') {
-        if (norm === 'running' || norm.includes('running')) {
-          result['Running'] += 1;
-        } else if (norm === 'red' || norm.includes('red')) {
-          result['Red'] += 1;
-        } else if (norm === 'yellow' || norm.includes('yellow')) {
-          result['Yellow'] += 1;
-        } else if (norm === 'green' || norm.includes('green')) {
-          result['Green'] += 1;
-        } else {
-          result['Pending'] += 1;
-        }
-      } else if (sec === 'interview') {
-        if (norm.includes('1st round')) result['1st Round'] += 1;
-        else if (norm.includes('2nd round')) result['2nd Round'] += 1;
-        else if (norm.includes('selected')) result['Selected'] += 1;
-        else if (norm.includes('rejected')) result['Rejected'] += 1;
-      } else if (sec === 'training') {
+      // Final stage / joining count
+      if (
+        norm === 'selected' ||
+        norm === 'completed' ||
+        tNorm === 'completed' ||
+        norm.includes('probation') ||
+        norm.includes('joining') ||
+        Boolean(record.joiningDateProvided) ||
+        Boolean(record.joiningDate) ||
+        stageNorm.includes('training')
+      ) {
+        result.joining += 1;
+      }
+
+      // Daily
+      if (norm.includes('new candidate')) {
+        result['New candidates info'] += 1;
+      } else if (norm.includes('interview scheduled') || norm === 'scheduled') {
+        result['Interview Scheduled'] += 1;
+      } else if (norm.includes('reschedule')) {
+        result.Rescheduled += 1;
+      } else if (norm.includes('no response') || norm.includes('no respones')) {
+        result['No Response'] += 1;
+      }
+
+      // Interview
+      if (norm.includes('1st round')) result['1st Round'] += 1;
+      else if (norm.includes('2nd round')) result['2nd Round'] += 1;
+      else if (norm.includes('selected')) result.Selected += 1;
+      else if (norm.includes('rejected')) result.Rejected += 1;
+
+      // Assessment
+      if (norm === 'running' || norm.includes('running')) {
+        result.Running += 1;
+      } else if (norm === 'red' || norm.includes('red')) {
+        result.Red += 1;
+      } else if (norm === 'yellow' || norm.includes('yellow')) {
+        result.Yellow += 1;
+      } else if (norm === 'green' || norm.includes('green')) {
+        result.Green += 1;
+      } else if (norm === 'assessment done' || norm.includes('assessment done')) {
+        result['Assessment Done'] += 1;
+      } else if (norm === 'pending' || norm.includes('pending') || norm === 'assessment' || norm.includes('assessment')) {
+        result.Pending += 1;
+      }
+
+      // Training
+      const isTrainingRecord =
+        [
+          'all trainees',
+          'ongoing',
+          'completed',
+          'ineligible',
+          'left',
+          'discontinued',
+          'in training',
+          'training candidates',
+          'training',
+        ].includes(norm) ||
+        ['ongoing', 'completed', 'ineligible', 'left', 'discontinued'].includes(tNorm) ||
+        stageNorm.includes('training');
+
+      if (isTrainingRecord) {
         result['All Trainees'] += 1;
-        if (norm === 'ongoing' || tNorm === 'ongoing' || norm === 'in training')
-          result['Ongoing'] += 1;
-        else if (norm === 'completed' || tNorm === 'completed' || norm === 'joined')
-          result['Completed'] += 1;
-        else if (norm === 'ineligible' || tNorm === 'ineligible') result['Ineligible'] += 1;
-        else if (norm === 'left' || tNorm === 'left') result['Left'] += 1;
-        else if (norm === 'discontinued' || tNorm === 'discontinued')
-          result['Discontinued'] += 1;
-        else result['Ongoing'] += 1;
+        if (norm === 'completed' || tNorm === 'completed' || norm === 'joined') {
+          result.Completed += 1;
+        } else if (norm === 'ineligible' || tNorm === 'ineligible') {
+          result.Ineligible += 1;
+        } else if (norm === 'discontinued' || tNorm === 'discontinued') {
+          result.Discontinued += 1;
+        } else if (norm === 'left' || tNorm === 'left') {
+          result.Left += 1;
+        } else {
+          result.Ongoing += 1;
+        }
       }
     });
 
     return result;
-  }, [records]);
+  }, [records, agreementsVaultCount]);
 
   // Filter records by current section, active sub-tab, search, and branch
   const filtered = useMemo(() => {
@@ -469,13 +598,14 @@ const ManageInterviews = () => {
         else if (activeSubTab === 'Rescheduled') matchesSubTab = norm.includes('reschedule');
         else if (activeSubTab === 'No Response')
           matchesSubTab = norm.includes('no response') || norm.includes('no respones');
+      } else if (activeSectionKey === 'interview') {
+        if (activeSubTab === '1st Round') matchesSubTab = norm.includes('1st round');
+        else if (activeSubTab === '2nd Round') matchesSubTab = norm.includes('2nd round');
+        else if (activeSubTab === 'Selected') matchesSubTab = norm.includes('selected');
+        else if (activeSubTab === 'Rejected') matchesSubTab = norm.includes('rejected');
       } else if (activeSectionKey === 'assessment') {
         if (activeSubTab === 'Pending')
-          matchesSubTab =
-            norm === 'pending' ||
-            norm.includes('pending') ||
-            norm === 'assessment done' ||
-            norm === 'assessment';
+          matchesSubTab = norm === 'pending' || norm.includes('pending');
         else if (activeSubTab === 'Running')
           matchesSubTab = norm === 'running' || norm.includes('running');
         else if (activeSubTab === 'Red')
@@ -484,26 +614,44 @@ const ManageInterviews = () => {
           matchesSubTab = norm === 'yellow' || norm.includes('yellow');
         else if (activeSubTab === 'Green')
           matchesSubTab = norm === 'green' || norm.includes('green');
-        else matchesSubTab = norm.includes('assessment');
-      } else if (activeSectionKey === 'interview') {
-        if (activeSubTab === '1st Round') matchesSubTab = norm.includes('1st round');
-        else if (activeSubTab === '2nd Round') matchesSubTab = norm.includes('2nd round');
-        else if (activeSubTab === 'Selected') matchesSubTab = norm.includes('selected');
-        else if (activeSubTab === 'Rejected') matchesSubTab = norm.includes('rejected');
-      } else if (activeSectionKey === 'training') {
-        if (activeSubTab === 'All Trainees') matchesSubTab = true;
-        else if (activeSubTab === 'Ongoing')
+        else if (activeSubTab === 'Assessment Done')
           matchesSubTab =
-            norm === 'ongoing' || tNorm === 'ongoing' || norm === 'in training';
-        else if (activeSubTab === 'Completed')
+            norm === 'assessment done' ||
+            norm.includes('assessment done') ||
+            norm === 'assessment';
+        else matchesSubTab = norm.includes('assessment');
+      } else if (activeSectionKey === 'training') {
+        if (activeSubTab === 'All Trainees') {
+          matchesSubTab = true;
+        } else if (activeSubTab === 'Completed') {
           matchesSubTab =
             norm === 'completed' || tNorm === 'completed' || norm === 'joined';
-        else if (activeSubTab === 'Ineligible')
+        } else if (activeSubTab === 'Ineligible') {
           matchesSubTab = norm === 'ineligible' || tNorm === 'ineligible';
-        else if (activeSubTab === 'Left')
-          matchesSubTab = norm === 'left' || tNorm === 'left';
-        else if (activeSubTab === 'Discontinued')
+        } else if (activeSubTab === 'Discontinued') {
           matchesSubTab = norm === 'discontinued' || tNorm === 'discontinued';
+        } else if (activeSubTab === 'Left') {
+          matchesSubTab = norm === 'left' || tNorm === 'left';
+        } else if (activeSubTab === 'Ongoing') {
+          matchesSubTab =
+            norm === 'ongoing' ||
+            tNorm === 'ongoing' ||
+            norm === 'in training' ||
+            norm.includes('probation') ||
+            tNorm.includes('probation') ||
+            (
+              !['completed', 'joined'].includes(norm) &&
+              !['completed', 'joined'].includes(tNorm) &&
+              norm !== 'ineligible' &&
+              tNorm !== 'ineligible' &&
+              norm !== 'discontinued' &&
+              tNorm !== 'discontinued' &&
+              norm !== 'left' &&
+              tNorm !== 'left'
+            );
+        } else {
+          matchesSubTab = true;
+        }
       }
 
       if (!matchesSubTab) return false;
@@ -530,10 +678,9 @@ const ManageInterviews = () => {
     setSelected('new');
     setFormErrors({});
     setTouched({});
+    setCvFileName('');
     let defaultStatus = 'New candidates info';
     if (['New candidates info', 'Interview Scheduled', 'Rescheduled', 'No Response'].includes(activeSubTab)) {
-      defaultStatus = activeSubTab;
-    } else if (['Pending', 'Running', 'Red', 'Yellow', 'Green'].includes(activeSubTab)) {
       defaultStatus = activeSubTab;
     }
 
@@ -547,7 +694,16 @@ const ManageInterviews = () => {
     const { isValid, errors } = validateCandidateForm(form);
     if (!isValid) {
       setFormErrors(errors);
-      const allTouched = {};
+      const allTouched = {
+        candidateName: true,
+        phoneNumber: true,
+        candidatePost: true,
+        entryDate: true,
+        interviewDate: true,
+        interviewTime: true,
+        branch: true,
+        comments: true,
+      };
       Object.keys(errors).forEach((k) => { allTouched[k] = true; });
       setTouched((prev) => ({ ...prev, ...allTouched }));
       const firstError = Object.values(errors)[0];
@@ -562,8 +718,13 @@ const ManageInterviews = () => {
       const prevStageNotes = {};
       if (notes) prevStageNotes[currentKey] = notes;
 
+      const code = form.countryCode || '+91';
+      const cleanDigits = (form.phoneNumber || '').replace(/\D/g, '');
+      const formattedPhone = cleanDigits ? `${code} ${cleanDigits}` : '';
+
       const payload = {
         ...form,
+        phoneNumber: formattedPhone,
         stageNotes: prevStageNotes,
         comments: notes,
         remarks: notes,
@@ -599,78 +760,85 @@ const ManageInterviews = () => {
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 space-y-4 w-full max-w-[1920px] mx-auto text-slate-800 dark:text-slate-100 pb-10">
-      {/* 1. Page Header matching other ERP pages */}
+      {/* 1. Page Header matching active stage */}
       <PageHeader
-        title="Recruitment Management"
-        breadcrumbs={['HR Management', 'Recruitment Management']}
+        title={currentSection.title}
+        subtitle={currentSection.subtitle}
+        breadcrumbs={['Recruitment Management', currentSection.title]}
         actions={
           <div className="flex items-center gap-2">
-            <ToolbarButton
-              icon={Link2}
-              onClick={() => {
-                const base = (import.meta.env.VITE_ASSESSMENT_PORTAL_URL || `${window.location.protocol}//${window.location.hostname}:5174`).replace(/\/$/, '');
-                const url = `${base}/register`;
-                navigator.clipboard.writeText(url);
-                feedback.success(`Assessment link copied: ${url}`);
-              }}
-            >
-              Copy Assessment Link
-            </ToolbarButton>
-            <ToolbarButton
-              icon={Download}
-              onClick={() =>
-                downloadCsv(`recruitment-${activeSectionKey}-candidates.csv`, filtered)
-              }
-            >
-              Export CSV
-            </ToolbarButton>
-            <button
-              type="button"
-              onClick={openCreate}
-              style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
-              className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <Plus size={14} />
-              <span>Add Candidate</span>
-            </button>
+            {activeSectionKey === 'training' && (
+              <>
+                <div className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs">
+                  <Users size={14} />
+                  <span>Trainee Candidates</span>
+                  <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">
+                    {counts['All Trainees'] || 0}
+                  </span>
+                </div>
+                <ToolbarButton
+                  icon={CalendarDays}
+                  onClick={() => {
+                    const rows = filtered.map((r) => ({
+                      'Candidate Name': r.candidateName,
+                      'Phone Number': r.phoneNumber,
+                      'Post Applied': r.candidatePost,
+                      'Branch': r.branch,
+                      'Training Status': r.trainingStatus || r.status || 'Ongoing',
+                      'Joining / Training Date': r.candidateJoinedOn || r.joiningDateProvided || r.interviewDate || '',
+                      'Day 8 Decision': r.trainingDay8Decision || 'Pending',
+                      'Remarks / Feedback': r.remarks || r.comments || '',
+                    }));
+                    downloadCsv(`training-attendance-sheet-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+                    feedback.success('Training attendance sheet exported');
+                  }}
+                >
+                  Attendance Sheet
+                </ToolbarButton>
+              </>
+            )}
+            {activeSectionKey === 'assessment' && (
+              <ToolbarButton
+                icon={Link2}
+                onClick={() => {
+                  const base = (
+                    import.meta.env.VITE_ASSESSMENT_PORTAL_URL ||
+                    `${window.location.protocol}//${window.location.hostname}:5174`
+                  ).replace(/\/$/, '');
+                  const url = `${base}/register`;
+                  navigator.clipboard.writeText(url);
+                  feedback.success(`Assessment link copied: ${url}`);
+                }}
+              >
+                Copy Assessment Link
+              </ToolbarButton>
+            )}
+            {activeSectionKey !== 'agreements' && activeSectionKey !== 'training' && (
+              <ToolbarButton
+                icon={Download}
+                onClick={() =>
+                  downloadCsv(`recruitment-${activeSectionKey}-candidates.csv`, filtered)
+                }
+              >
+                Export CSV
+              </ToolbarButton>
+            )}
+            {activeSectionKey !== 'agreements' && (
+              <button
+                type="button"
+                onClick={openCreate}
+                style={{ backgroundColor: 'var(--erp-primary, #2563eb)' }}
+                className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <Plus size={14} />
+                <span>Add Candidate</span>
+              </button>
+            )}
           </div>
         }
       />
 
-      {/* 2. Pipeline Section Navigation Switcher Pills */}
-      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-2xs w-fit">
-        {[
-          { key: 'daily', label: 'Daily Candidate Update' },
-          { key: 'assessment', label: 'Assessment Update' },
-          { key: 'interview', label: 'Interview Candidate Updates' },
-          { key: 'training', label: 'Training Candidates' },
-        ].map((sec) => {
-          const isActive = activeSectionKey === sec.key;
-          return (
-            <button
-              key={sec.key}
-              type="button"
-              onClick={() => setMainSection(sec.key)}
-              style={
-                isActive
-                  ? {
-                      color: 'var(--erp-primary, #2563eb)',
-                    }
-                  : undefined
-              }
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                isActive
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 font-bold shadow-2xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              {sec.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 3. Pipeline Subtabs with Clean Underline Indicator */}
+      {/* 2. Pipeline Subtabs with Clean Underline Indicator */}
       <div className="flex items-center gap-6 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar pt-1">
         {currentSection.tabs.map((tab) => {
           const isActive = activeSubTab === tab.id;
@@ -717,8 +885,24 @@ const ManageInterviews = () => {
         })}
       </div>
 
-      {/* 4. Single Unified Pipeline Card Container */}
-      <section className="bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden">
+      {/* 4. Main Section Body: Candidate Agreements Studio OR Unified Pipeline Tables */}
+      {activeSectionKey === 'agreements' ? (
+        <AgreementModule
+          initialCandidateId={selectedAgreementCandidateId}
+          activeTab={activeSubTab}
+          onTabChange={setActiveSubTab}
+          onCandidateChange={(cId) => {
+            setSelectedAgreementCandidateId(cId || '');
+            if (cId) {
+              setSearchParams({ section: 'agreements', candidateId: cId });
+            } else {
+              setSearchParams({ section: 'agreements' });
+            }
+          }}
+          hideSubtabs={true}
+        />
+      ) : (
+        <section className="bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden">
 
         {/* Integrated Filter Toolbar */}
         <div className="p-3.5 sm:p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -778,7 +962,11 @@ const ManageInterviews = () => {
                 <th className="py-2.5 px-2.5">BRANCH</th>
                 <th className="py-2.5 px-2.5">STATUS</th>
                 <th className="py-2.5 px-2.5">
-                  {activeSectionKey === 'assessment' ? 'ASSESSMENT SCORE' : 'SCHEDULED TIMING'}
+                  {activeSectionKey === 'training'
+                    ? 'TRAINING STATUS'
+                    : activeSectionKey === 'assessment'
+                    ? 'ASSESSMENT SCORE'
+                    : 'SCHEDULED TIMING'}
                 </th>
                 <th className="py-2.5 px-2.5">COMMENTS / NOTES</th>
                 <th className="py-2.5 pr-4 sm:pr-5 pl-2.5 text-right">ACTIONS</th>
@@ -837,7 +1025,18 @@ const ManageInterviews = () => {
                       </StatusBadge>
                     </td>
                     <td className="py-2.5 px-2.5 text-slate-600 dark:text-slate-400">
-                      {activeSectionKey === 'assessment' ? (
+                      {activeSectionKey === 'training' ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            {record.trainingStatus || record.status || 'Ongoing'}
+                          </span>
+                          {record.trainingDay8Decision && (
+                            <span className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">
+                              Day 8: {record.trainingDay8Decision}
+                            </span>
+                          )}
+                        </div>
+                      ) : activeSectionKey === 'assessment' ? (
                         record.interviewScore && record.interviewScore !== 'Pending' ? (
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
@@ -896,6 +1095,20 @@ const ManageInterviews = () => {
                           <Eye size={14} />
                         </button>
                         <button
+                          className="w-8 h-8 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAgreementCandidateId(record._id);
+                            setMainSection('agreements');
+                            setActiveSubTab('studio');
+                            setSearchParams({ section: 'agreements', candidateId: record._id });
+                          }}
+                          title="Candidate Agreements & Policies"
+                        >
+                          <FileSignature size={14} />
+                        </button>
+                        <button
                           className="w-8 h-8 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                           type="button"
                           onClick={(e) => {
@@ -932,6 +1145,7 @@ const ManageInterviews = () => {
           <span>Pipeline Stage: <strong className="text-slate-700 dark:text-slate-300">{activeSubTab}</strong></span>
         </div>
       </section>
+      )}
 
       {/* 1. Add Candidate Modal - Simple Creation Form */}
       <Modal
@@ -973,7 +1187,7 @@ const ManageInterviews = () => {
                     ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
                     : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
                 } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition`}
-                placeholder="e.g. Rahul Sharma"
+                placeholder="Enter candidate name"
                 value={form.candidateName}
                 onChange={(event) => handleFieldChange('candidateName', event.target.value)}
                 onBlur={() => handleFieldBlur('candidateName')}
@@ -986,28 +1200,16 @@ const ManageInterviews = () => {
               )}
             </div>
 
-            <div>
-              <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                Phone Number <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`w-full bg-white dark:bg-slate-900 border ${
-                  touched.phoneNumber && formErrors.phoneNumber
-                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
-                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
-                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition`}
-                placeholder="e.g. +91 98765 43210 or 9876543210"
-                value={form.phoneNumber}
-                onChange={(event) => handleFieldChange('phoneNumber', event.target.value)}
-                onBlur={() => handleFieldBlur('phoneNumber')}
-              />
-              {touched.phoneNumber && formErrors.phoneNumber && (
-                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
-                  <AlertCircle size={12} className="flex-shrink-0" />
-                  <span>{formErrors.phoneNumber}</span>
-                </p>
-              )}
-            </div>
+            <PhoneInputField
+              countryCode={form.countryCode || '+91'}
+              phoneNumber={form.phoneNumber}
+              placeholder="Enter phone number"
+              onCountryCodeChange={(code) => handleFieldChange('countryCode', code)}
+              onPhoneNumberChange={(digits) => handleFieldChange('phoneNumber', digits)}
+              onBlur={() => handleFieldBlur('phoneNumber')}
+              error={formErrors.phoneNumber}
+              touched={touched.phoneNumber}
+            />
           </div>
 
           {/* Row 2: Candidate Reference | Entry Date */}
@@ -1018,7 +1220,7 @@ const ManageInterviews = () => {
               </label>
               <input
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="e.g. WK-50EC430D1592-2026 or Workindia / Referral"
+                placeholder="Enter candidate reference or source"
                 value={form.candidateReference}
                 onChange={(event) => handleFieldChange('candidateReference', event.target.value)}
                 onBlur={() => handleFieldBlur('candidateReference')}
@@ -1026,7 +1228,7 @@ const ManageInterviews = () => {
             </div>
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                Entry Date
+                Entry Date <span className="text-rose-500">*</span>
               </label>
               <input
                 type="date"
@@ -1052,7 +1254,7 @@ const ManageInterviews = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                Candidate Post
+                Candidate Post <span className="text-rose-500">*</span>
               </label>
               <input
                 className={`w-full bg-white dark:bg-slate-900 border ${
@@ -1060,7 +1262,7 @@ const ManageInterviews = () => {
                     ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
                     : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
                 } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition`}
-                placeholder="e.g. Fullstack Developer / Telesales Executive"
+                placeholder="Enter applied post / designation"
                 value={form.candidatePost}
                 onChange={(event) => handleFieldChange('candidatePost', event.target.value)}
                 onBlur={() => handleFieldBlur('candidatePost')}
@@ -1081,33 +1283,10 @@ const ManageInterviews = () => {
                 value={form.status}
                 onChange={(event) => handleFieldChange('status', event.target.value)}
               >
-                <optgroup label="Daily Stage">
-                  <option value="New candidates info">New candidates info</option>
-                  <option value="Interview Scheduled">Interview Scheduled</option>
-                  <option value="Rescheduled">Rescheduled</option>
-                  <option value="No Response">No Response</option>
-                </optgroup>
-                <optgroup label="Assessment Update">
-                  <option value="Pending">Pending</option>
-                  <option value="Running">Running</option>
-                  <option value="Red">Red</option>
-                  <option value="Yellow">Yellow</option>
-                  <option value="Green">Green</option>
-                  <option value="Assessment Done">Assessment Done</option>
-                </optgroup>
-                <optgroup label="Interview Rounds">
-                  <option value="1st Round">1st Round</option>
-                  <option value="2nd Round">2nd Round</option>
-                  <option value="Selected">Selected</option>
-                  <option value="Rejected">Rejected</option>
-                </optgroup>
-                <optgroup label="Training Stage">
-                  <option value="Ongoing">Ongoing (Training)</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Ineligible">Ineligible</option>
-                  <option value="Left">Left</option>
-                  <option value="Discontinued">Discontinued</option>
-                </optgroup>
+                <option value="New candidates info">New candidates info</option>
+                <option value="Interview Scheduled">Interview Scheduled</option>
+                <option value="Rescheduled">Rescheduled</option>
+                <option value="No Response">No Response</option>
               </select>
             </div>
           </div>
@@ -1116,7 +1295,7 @@ const ManageInterviews = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                Schedule Interview Date
+                Schedule Interview Date {['Interview Scheduled', 'Rescheduled'].includes(form.status) && <span className="text-rose-500">*</span>}
               </label>
               <input
                 type="date"
@@ -1142,7 +1321,7 @@ const ManageInterviews = () => {
               </label>
               <input
                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition"
-                placeholder="e.g. 10:00 AM or 02:30 PM"
+                placeholder="Enter interview time (e.g. 10:00 AM)"
                 value={form.interviewTime}
                 onChange={(event) => handleFieldChange('interviewTime', event.target.value)}
                 onBlur={() => handleFieldBlur('interviewTime')}
@@ -1150,16 +1329,21 @@ const ManageInterviews = () => {
             </div>
           </div>
 
-          {/* Row 5: Branch */}
+          {/* Row 5: Branch and Resume / CV Upload */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                Branch
+                Branch <span className="text-rose-500">*</span>
               </label>
               <select
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 transition cursor-pointer"
+                className={`w-full bg-white dark:bg-slate-900 border ${
+                  touched.branch && formErrors.branch
+                    ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
+                    : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
+                } rounded-lg px-3.5 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none transition cursor-pointer`}
                 value={form.branch}
                 onChange={(event) => handleFieldChange('branch', event.target.value)}
+                onBlur={() => handleFieldBlur('branch')}
               >
                 {BRANCH_OPTIONS.map((branch) => (
                   <option key={branch} value={branch}>
@@ -1167,6 +1351,68 @@ const ManageInterviews = () => {
                   </option>
                 ))}
               </select>
+              {touched.branch && formErrors.branch && (
+                <p className="text-[11px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  <span>{formErrors.branch}</span>
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
+                Resume / CV Document <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              {form.cvUrl ? (
+                <div className="flex items-center justify-between gap-2 border border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 rounded-lg px-3 py-1.5 mt-0.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText size={15} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                    <span className="truncate text-xs font-semibold text-purple-900 dark:text-purple-200">
+                      {cvFileName || 'CV Document Attached'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <a
+                      href={form.cvUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1 text-purple-600 hover:text-purple-800 dark:hover:text-purple-300"
+                      title="View CV"
+                    >
+                      <ExternalLink size={13} />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleFieldChange('cvUrl', '');
+                        setCvFileName('');
+                      }}
+                      className="p-1 text-rose-500 hover:text-rose-700 cursor-pointer"
+                      title="Remove CV"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 border border-dashed border-slate-300 dark:border-slate-700 hover:border-purple-500 dark:hover:border-purple-400 rounded-lg px-3.5 py-2 text-xs text-slate-600 dark:text-slate-300 hover:text-purple-600 dark:hover:text-purple-400 bg-slate-50 dark:bg-slate-900 cursor-pointer transition">
+                  {uploadingCv ? (
+                    <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Upload size={14} className="text-purple-600 dark:text-purple-400" />
+                  )}
+                  <span className="font-medium">
+                    {uploadingCv ? 'Uploading CV...' : 'Upload CV / Resume (PDF, DOC)'}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.rtf,.txt"
+                    onChange={handleUploadCvFile}
+                    disabled={uploadingCv}
+                    className="hidden"
+                  />
+                </label>
+              )}
             </div>
           </div>
 
@@ -1182,7 +1428,7 @@ const ManageInterviews = () => {
                   ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20 bg-rose-50/15'
                   : 'border-slate-200 dark:border-slate-700 focus:border-blue-500'
               } rounded-lg p-3 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none transition resize-y`}
-              placeholder="Enter recruiter feedback, interview discussion notes, or requirements... (Mandatory, min 5 chars)"
+              placeholder="Enter recruiter feedback or interview notes..."
               value={form.comments}
               onChange={(event) => handleFieldChange('comments', event.target.value)}
               onBlur={() => handleFieldBlur('comments')}

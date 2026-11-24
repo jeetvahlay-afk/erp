@@ -3,16 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
   Briefcase,
-  Calendar,
   CalendarCheck,
   Check,
   ChevronDown,
   Clock,
   CreditCard,
+  GraduationCap,
   Timer,
   User,
   UserCheck,
-  UserPlus,
   Users,
   UserX,
   X,
@@ -21,10 +20,17 @@ import useLiveData from '../hooks/useLiveData';
 import api, { getApiError } from '../lib/api';
 import { feedback } from '../lib/feedback';
 import { LoadingState, ErrorState } from '../components/ui/EnterpriseUI';
+import DashboardDateSelector from '../components/DashboardDateSelector';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const { data, loading, error, refresh } = useLiveData('/api/dashboard/admin');
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const { data, loading, error, refresh } = useLiveData(
+    selectedDate ? `/api/dashboard/admin?date=${selectedDate}` : '/api/dashboard/admin'
+  );
   const [attendancePeriod, setAttendancePeriod] = useState('week');
   const [payrollPeriod, setPayrollPeriod] = useState('6months');
 
@@ -34,9 +40,22 @@ const AdminDashboard = () => {
   const presentToday = kpis.presentToday || 0;
   const payrollAmount = kpis.payrollNet || 0;
   const rec = data?.recruitment || {};
+  const dailyCount = rec.daily ?? (rec.applied || 0);
+  const assessmentCount = rec.assessment || 0;
+  const interviewCount = rec.interview ?? rec.interviewed ?? 0;
+  const trainingCount = (rec.training || 0) + (rec.hired || 0);
+  const recTotal = dailyCount + assessmentCount + interviewCount + trainingCount;
 
-  // 7-day attendance distribution from real data
+  // 7-day attendance distribution or monthly weekly breakdown from real data
   const attendanceDays = useMemo(() => {
+    if (attendancePeriod === 'month' && Array.isArray(data?.monthlyAttendance) && data.monthlyAttendance.length > 0) {
+      return data.monthlyAttendance.map((item) => ({
+        day: item.label || item.week || item.date,
+        present: item.present || 0,
+        late: item.late || 0,
+        absent: item.absent || 0,
+      }));
+    }
     if (Array.isArray(data?.weeklyAttendance) && data.weeklyAttendance.length > 0) {
       return data.weeklyAttendance.map((item) => ({
         day: item.label || item.date,
@@ -46,7 +65,34 @@ const AdminDashboard = () => {
       }));
     }
     return [];
-  }, [data?.weeklyAttendance]);
+  }, [data?.weeklyAttendance, data?.monthlyAttendance, attendancePeriod]);
+
+  // Dynamic scale calculation based on highest metric or total staff
+  const chartScale = useMemo(() => {
+    const maxDataVal = Math.max(
+      0,
+      ...attendanceDays.flatMap((item) => [
+        Number(item.present || 0),
+        Number(item.late || 0),
+        Number(item.absent || 0),
+      ])
+    );
+    const targetMax = Math.max(Number(totalStaff || 0), Number(activeStaff || 0), maxDataVal, 5);
+
+    let cleanMax;
+    if (targetMax <= 5) cleanMax = 5;
+    else if (targetMax <= 10) cleanMax = 10;
+    else if (targetMax <= 20) cleanMax = 20;
+    else if (targetMax <= 30) cleanMax = 30;
+    else if (targetMax <= 50) cleanMax = 50;
+    else if (targetMax <= 100) cleanMax = 100;
+    else if (targetMax <= 250) cleanMax = 250;
+    else cleanMax = Math.ceil(targetMax / 50) * 50;
+
+    const step = cleanMax / 5;
+    const steps = [cleanMax, Math.round(step * 4), Math.round(step * 3), Math.round(step * 2), Math.round(step), 0];
+    return { max: cleanMax, steps };
+  }, [attendanceDays, totalStaff, activeStaff]);
 
   // Department Breakdown from real distribution
   const departments = useMemo(() => {
@@ -137,14 +183,7 @@ const AdminDashboard = () => {
 
         {/* Date Selector Pill */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            type="button"
-            className="bg-white dark:bg-[#111827] border border-slate-200/90 dark:border-slate-800 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-2xs flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <Calendar size={13} className="text-slate-500" />
-            <span>Jan 13, 2026</span>
-            <ChevronDown size={12} className="text-slate-400" />
-          </button>
+          <DashboardDateSelector value={selectedDate} onChange={setSelectedDate} />
         </div>
       </div>
 
@@ -277,68 +316,67 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                {/* Y-Axis Gridlines + 7 Day Bar Columns */}
+                {/* Dynamic Y-Axis Gridlines + Day/Week Bar Columns */}
                 <div className="relative h-40 flex items-end">
-                  {/* Horizontal Gridlines & Values */}
+                  {/* Dynamic Horizontal Gridlines & Values */}
                   <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-slate-400 font-medium">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 text-right">250</span>
-                      <div className="flex-1 border-b border-slate-100 dark:border-slate-800" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 text-right">200</span>
-                      <div className="flex-1 border-b border-slate-100 dark:border-slate-800" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 text-right">150</span>
-                      <div className="flex-1 border-b border-slate-100 dark:border-slate-800" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 text-right">100</span>
-                      <div className="flex-1 border-b border-slate-100 dark:border-slate-800" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 text-right">50</span>
-                      <div className="flex-1 border-b border-slate-100 dark:border-slate-800" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 text-right">0</span>
-                      <div className="flex-1 border-b border-slate-200 dark:border-slate-700" />
-                    </div>
+                    {chartScale.steps.map((stepVal, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="w-6 text-right font-mono">{stepVal}</span>
+                        <div
+                          className={`flex-1 border-b ${
+                            stepVal === 0
+                              ? 'border-slate-200 dark:border-slate-700'
+                              : 'border-slate-100 dark:border-slate-800'
+                          }`}
+                        />
+                      </div>
+                    ))}
                   </div>
 
                   {/* Day Columns */}
                   <div className="relative z-10 w-full pl-8 pr-1 flex items-end justify-between h-32">
-                    {attendanceDays.map((item) => (
-                      <div key={item.day} className="flex flex-col items-center gap-1 flex-1">
-                        <div className="flex items-end gap-0.5 h-28">
-                          {/* Present Bar (Theme Primary) */}
-                          <div
-                            style={{
-                              height: `${(item.present / 250) * 100}%`,
-                              backgroundColor: 'var(--erp-primary, #2563eb)',
-                            }}
-                            className="w-2.5 sm:w-3 rounded-t-[3px] transition-all duration-500"
-                            title={`Present: ${item.present}`}
-                          />
-                          {/* Late Bar (Amber) */}
-                          <div
-                            style={{ height: `${(item.late / 250) * 100}%` }}
-                            className="w-2 bg-[#f59e0b] rounded-t-[2px] transition-all duration-500"
-                            title={`Late: ${item.late}`}
-                          />
-                          {/* Absent Bar (Red) */}
-                          <div
-                            style={{ height: `${(item.absent / 250) * 100}%` }}
-                            className="w-2 bg-[#ef4444] rounded-t-[2px] transition-all duration-500"
-                            title={`Absent: ${item.absent}`}
-                          />
+                    {attendanceDays.map((item) => {
+                      const presentH = item.present > 0 ? Math.max(6, Math.min(100, (item.present / chartScale.max) * 100)) : 0;
+                      const lateH = item.late > 0 ? Math.max(6, Math.min(100, (item.late / chartScale.max) * 100)) : 0;
+                      const absentH = item.absent > 0 ? Math.max(6, Math.min(100, (item.absent / chartScale.max) * 100)) : 0;
+
+                      return (
+                        <div key={item.day} className="flex flex-col items-center gap-1 flex-1 group relative">
+                          {/* Tooltip on Hover */}
+                          <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none bg-slate-900 text-white text-[10px] px-2 py-1 rounded shadow-md z-30 whitespace-nowrap">
+                            <span className="font-bold">{item.day}:</span> P:{item.present} | L:{item.late} | A:{item.absent}
+                          </div>
+
+                          <div className="flex items-end gap-1 h-28">
+                            {/* Present Bar (Theme Primary) */}
+                            <div
+                              style={{
+                                height: `${presentH}%`,
+                                backgroundColor: 'var(--erp-primary, #2563eb)',
+                              }}
+                              className="w-2.5 sm:w-3.5 rounded-t-[3px] transition-all duration-300 hover:brightness-110 cursor-pointer"
+                              title={`Present: ${item.present}`}
+                            />
+                            {/* Late Bar (Amber) */}
+                            <div
+                              style={{ height: `${lateH}%` }}
+                              className="w-2 sm:w-2.5 bg-[#f59e0b] rounded-t-[2px] transition-all duration-300 hover:brightness-110 cursor-pointer"
+                              title={`Late: ${item.late}`}
+                            />
+                            {/* Absent Bar (Red) */}
+                            <div
+                              style={{ height: `${absentH}%` }}
+                              className="w-2 sm:w-2.5 bg-[#ef4444] rounded-t-[2px] transition-all duration-300 hover:brightness-110 cursor-pointer"
+                              title={`Absent: ${item.absent}`}
+                            />
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">
+                            {item.day}
+                          </span>
                         </div>
-                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">
-                          {item.day}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -352,7 +390,7 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">Present</span>
-                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">214</strong>
+                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">{presentToday}</strong>
                   </div>
                 </div>
 
@@ -363,7 +401,7 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">Late</span>
-                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">24</strong>
+                    <strong className="text-sm font-bold text-slate-900 dark:text-white block leading-tight">{kpis.lateToday ?? 0}</strong>
                   </div>
                 </div>
 
@@ -610,18 +648,59 @@ const AdminDashboard = () => {
         {/* Card 3: Recruitment Pipeline (3 cols) */}
         <div className="lg:col-span-3 bg-white dark:bg-[#111827] rounded-xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-col justify-between">
           <div>
-            <div className="pb-2.5 mb-2.5 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Recruitment Pipeline</h2>
+            <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Recruitment Pipeline</h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Live candidate tracking status</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/manage-interviews')}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 cursor-pointer transition-colors"
+                title="Open Recruitment Management"
+              >
+                <span>Manage</span>
+                <ArrowUpRight size={13} />
+              </button>
+            </div>
+
+            {/* Pipeline Progress Bar */}
+            <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex mb-2.5">
+              {recTotal > 0 ? (
+                <>
+                  {dailyCount > 0 && (
+                    <div
+                      style={{ flex: dailyCount, backgroundColor: 'var(--erp-primary, #2563eb)' }}
+                      className="h-full"
+                      title={`Daily Intake: ${dailyCount}`}
+                    />
+                  )}
+                  {assessmentCount > 0 && (
+                    <div style={{ flex: assessmentCount }} className="bg-amber-500 h-full" title={`Assessment: ${assessmentCount}`} />
+                  )}
+                  {interviewCount > 0 && (
+                    <div style={{ flex: interviewCount }} className="bg-purple-600 h-full" title={`Interview: ${interviewCount}`} />
+                  )}
+                  {trainingCount > 0 && (
+                    <div style={{ flex: trainingCount }} className="bg-emerald-500 h-full" title={`Training: ${trainingCount}`} />
+                  )}
+                </>
+              ) : (
+                <div className="w-full bg-slate-200 dark:bg-slate-700 h-full" />
+              )}
             </div>
 
             {/* 4 Vertical Metric Boxes */}
             <div className="grid grid-cols-4 gap-1.5 pt-0.5 text-center">
-              {/* Applied */}
-              <div
-                className="rounded-lg p-2 flex flex-col items-center justify-center"
+              {/* Daily */}
+              <button
+                type="button"
+                onClick={() => navigate('/manage-interviews?section=daily')}
+                className="rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
                 style={{
                   backgroundColor: 'color-mix(in srgb, var(--erp-primary, #2563eb) 10%, transparent)',
                 }}
+                title="Click to view daily candidate intake"
               >
                 <div
                   className="w-6 h-6 rounded-md flex items-center justify-center mb-1"
@@ -630,38 +709,53 @@ const AdminDashboard = () => {
                     color: 'var(--erp-primary, #2563eb)',
                   }}
                 >
-                  <User size={13} />
+                  <Users size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.applied || 0}</strong>
-                <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Applied</span>
-              </div>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{dailyCount}</strong>
+                <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Daily</span>
+              </button>
 
-              {/* Shortlisted */}
-              <div className="bg-[#fffbeb] dark:bg-amber-950/40 rounded-lg p-2 flex flex-col items-center justify-center">
+              {/* Assessment */}
+              <button
+                type="button"
+                onClick={() => navigate('/manage-interviews?section=assessment')}
+                className="bg-[#fffbeb] dark:bg-amber-950/40 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                title="Click to view candidates in assessment stage"
+              >
                 <div className="w-6 h-6 rounded-md bg-amber-100/60 text-[#f59e0b] flex items-center justify-center mb-1">
                   <UserCheck size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.shortlisted || 0}</strong>
-                <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Shortlisted</span>
-              </div>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{assessmentCount}</strong>
+                <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Assessment</span>
+              </button>
 
-              {/* Interviewed */}
-              <div className="bg-[#f5f3ff] dark:bg-purple-950/40 rounded-lg p-2 flex flex-col items-center justify-center">
+              {/* Interview */}
+              <button
+                type="button"
+                onClick={() => navigate('/manage-interviews?section=interview')}
+                className="bg-[#f5f3ff] dark:bg-purple-950/40 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                title="Click to view candidates in 1st/2nd round interviews"
+              >
                 <div className="w-6 h-6 rounded-md bg-purple-100/60 text-[#7c3aed] flex items-center justify-center mb-1">
                   <Briefcase size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.interviewed || 0}</strong>
+                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{interviewCount}</strong>
                 <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Interview</span>
-              </div>
+              </button>
 
-              {/* Hired */}
-              <div className="bg-[#ecfdf5] dark:bg-emerald-950/40 rounded-lg p-2 flex flex-col items-center justify-center">
+              {/* Training */}
+              <button
+                type="button"
+                onClick={() => navigate('/manage-interviews?section=training')}
+                className="bg-[#ecfdf5] dark:bg-emerald-950/40 rounded-lg p-2 flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+                title="Click to view training and onboarded candidates"
+              >
                 <div className="w-6 h-6 rounded-md bg-emerald-100/60 text-[#10b981] flex items-center justify-center mb-1">
-                  <UserPlus size={13} />
+                  <GraduationCap size={13} />
                 </div>
-                <strong className="text-base font-bold text-slate-900 dark:text-white leading-tight">{rec.hired || 0}</strong>
-                <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Hired</span>
-              </div>
+                <strong className="text-base font-bold text-emerald-600 dark:text-emerald-400 leading-tight">{trainingCount}</strong>
+                <span className="text-[9px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5">Training</span>
+              </button>
             </div>
           </div>
         </div>

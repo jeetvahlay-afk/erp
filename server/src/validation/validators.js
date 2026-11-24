@@ -37,6 +37,8 @@ const objectId = (value, field = 'id') => {
   return value;
 };
 
+const isObjectId = (value) => mongoose.isValidObjectId(value);
+
 const enumValue = (value, allowed, field) => {
   ensure(allowed.includes(value), `${field} must be one of: ${allowed.join(', ')}`, field);
   return value;
@@ -50,4 +52,4 @@ const number = (value, field, options = {}) => {
   return parsed;
 };
 
-module.exports = { ensure, requiredString, optionalString, email, password, objectId, enumValue, number };
+module.exports = { ensure, requiredString, optionalString, email, password, objectId, isObjectId, enumValue, number };

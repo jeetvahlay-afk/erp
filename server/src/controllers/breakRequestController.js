@@ -1,4 +1,5 @@
 const BreakRequest = require('../models/BreakRequest');
+const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const validators = require('../validation/validators');
@@ -29,8 +30,13 @@ const getMyRequests = asyncHandler(async (req, res) => {
   res.json(requests);
 });
 
-const getAllRequests = asyncHandler(async (_req, res) => {
-  const requests = await BreakRequest.find()
+const getAllRequests = asyncHandler(async (req, res) => {
+  const query = {};
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const deptUserIds = await User.find({ department: req.user.department, deletedAt: null }).distinct('_id');
+    query.user = { $in: deptUserIds };
+  }
+  const requests = await BreakRequest.find(query)
     .populate('user', 'name email employeeId department')
     .populate('reviewedBy', 'name employeeId')
     .sort({ createdAt: -1 })
@@ -46,6 +52,13 @@ const updateRequestStatus = asyncHandler(async (req, res) => {
   const request = await BreakRequest.findById(req.params.id);
   if (!request) throw new AppError('Request not found', 404, 'REQUEST_NOT_FOUND');
   if (request.status !== 'Pending') throw new AppError('Request has already been processed', 409, 'REQUEST_ALREADY_PROCESSED');
+
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    const targetUser = await User.findById(request.user).select('department');
+    if (!targetUser || targetUser.department !== req.user.department) {
+      throw new AppError('You can only review break requests for employees in your department', 403, 'FORBIDDEN');
+    }
+  }
 
   request.status = status;
   request.adminComment = adminComment;

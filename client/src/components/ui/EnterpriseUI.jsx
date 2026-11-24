@@ -35,7 +35,7 @@ export const formatTime = (value) => {
   return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).format(date);
 };
 
-export const PageHeader = ({ title, eyebrow, breadcrumbs = [], actions, children }) => (
+export const PageHeader = ({ title, eyebrow: _eyebrow, breadcrumbs: _breadcrumbs = [], actions, children }) => (
   <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3.5 sm:mb-4">
     <div className="min-w-0">
       <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{title}</h1>
@@ -506,7 +506,7 @@ export const Modal = ({
         <header className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h2 id="erp-modal-title" className="text-base font-bold text-slate-900 dark:text-white">{title}</h2>
-            {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+            {subtitle && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</div>}
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
             <X size={18} />

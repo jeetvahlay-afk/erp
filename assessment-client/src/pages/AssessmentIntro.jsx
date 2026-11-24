@@ -44,7 +44,8 @@ const AssessmentIntro = () => {
     } catch (err) {
       console.warn('Fullscreen request blocked or unsupported:', err);
     }
-    navigate(`/assessment/${candidateCode}/exam`);
+    const isCompleted = data?.status === 'Completed';
+    navigate(`/assessment/${candidateCode}/exam${isCompleted ? '?retake=true' : ''}`);
   };
 
   if (loading) {

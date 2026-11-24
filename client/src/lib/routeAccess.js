@@ -54,6 +54,7 @@ const configuredRouteForPath = (pathname) => {
   if (/^\/interview\/[^/]+$/.test(path)) return '/manage-interviews';
   if (/^\/work-reports\/[^/]+$/.test(path)) return '/work-reports';
   if (path.startsWith('/tasks/')) return '/tasks';
+  if (path.startsWith('/mail/')) return '/mail/inbox';
   return path;
 };
 

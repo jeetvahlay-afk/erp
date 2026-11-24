@@ -506,7 +506,7 @@ const ManageDailyBreaks = () => {
               <input
                 value={editing.breakType}
                 onChange={(e) => setEditing({ ...editing, breakType: e.target.value })}
-                placeholder="e.g. Lunch Break, Afternoon Tea"
+                placeholder="Enter break name"
                 className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>

@@ -15,7 +15,8 @@ const csrfProtection = (req, _res, next) => {
   if (
     SAFE_METHODS.has(req.method) ||
     req.path === '/api/auth/login' ||
-    req.path.startsWith('/api/assessment')
+    req.path.startsWith('/api/assessment') ||
+    req.path.startsWith('/api/agreements/public')
   ) {
     return next();
   }

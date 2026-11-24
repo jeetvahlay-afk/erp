@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Role = require('../models/Role');
 const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -10,6 +11,22 @@ const extractToken = (req) => {
   if (scheme === 'Bearer' && bearerToken && bearerToken.split('.').length === 3) return bearerToken;
   return req.cookies?.[env.sessionCookieName];
 };
+
+const roleCache = new Map();
+const ROLE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+const getCachedRoleDataScope = async (roleName) => {
+  const cached = roleCache.get(roleName);
+  if (cached && Date.now() - cached.timestamp < ROLE_CACHE_TTL) {
+    return cached.dataScope;
+  }
+  const roleDoc = await Role.findOne({ name: roleName, isActive: true }).select('dataScope').lean();
+  const dataScope = roleDoc?.dataScope || 'all';
+  roleCache.set(roleName, { dataScope, timestamp: Date.now() });
+  return dataScope;
+};
+
+const invalidateRoleCache = () => roleCache.clear();
 
 const protect = asyncHandler(async (req, _res, next) => {
   const token = extractToken(req);
@@ -24,6 +41,13 @@ const protect = asyncHandler(async (req, _res, next) => {
   if (!user.isActive) throw new AppError('This account has been disabled', 403, 'ACCOUNT_DISABLED');
   if ((decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
     throw new AppError('This session is no longer valid. Please sign in again', 401, 'SESSION_REVOKED');
+  }
+
+  const roleName = String(user.role || '').trim().toLowerCase();
+  if (['super admin', 'admin'].includes(roleName)) {
+    user.dataScope = 'all';
+  } else {
+    user.dataScope = await getCachedRoleDataScope(roleName);
   }
 
   req.user = user;
@@ -61,4 +85,4 @@ const authorizeAccess = ({ roles = [], permissions = [] } = {}) => (req, _res, n
   return next();
 };
 
-module.exports = { protect, authorize, authorizeAccess, extractToken };
+module.exports = { protect, authorize, authorizeAccess, extractToken, invalidateRoleCache };

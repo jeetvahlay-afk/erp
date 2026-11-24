@@ -5,12 +5,13 @@ const AppError = require('../utils/AppError');
 const validators = require('../validation/validators');
 const { writeAuditLog } = require('../services/auditService');
 const { sanitizeRoutes, permissionsForRoutes } = require('../utils/routePermissions');
+const { invalidateRoleCache } = require('../middleware/authMiddleware');
 
 const ensureDefaultRoles = async () => {
   const defaults = [
-    { name: 'super admin', description: 'Full access to all system features.', isSystem: true },
-    { name: 'admin', description: 'Administrative access without super-admin account control.', isSystem: true },
-    { name: 'user', description: 'Standard employee access.', isSystem: true },
+    { name: 'super admin', description: 'Full access to all system features.', dataScope: 'all', isSystem: true },
+    { name: 'admin', description: 'Administrative access without super-admin account control.', dataScope: 'all', isSystem: true },
+    { name: 'user', description: 'Standard employee access.', dataScope: 'all', isSystem: true },
   ];
   await Promise.all(defaults.map((role) => Role.updateOne(
     { name: role.name },
@@ -39,8 +40,10 @@ const createRole = asyncHandler(async (req, res) => {
     ? req.body.permissions.map(String)
     : [];
   const permissions = [...new Set([...explicitPermissions, ...derivedPermissions])];
-  const role = await Role.create({ name, description, permissions, allowedRoutes, isSystem: false });
-  await writeAuditLog(req, 'role.created', 'Role', role._id, { name, allowedRoutesCount: allowedRoutes.length });
+  const dataScope = req.body.dataScope === 'department' ? 'department' : 'all';
+  const role = await Role.create({ name, description, permissions, allowedRoutes, dataScope, isSystem: false });
+  invalidateRoleCache();
+  await writeAuditLog(req, 'role.created', 'Role', role._id, { name, dataScope, allowedRoutesCount: allowedRoutes.length });
   res.status(201).json(role);
 });
 
@@ -74,10 +77,18 @@ const updateRole = asyncHandler(async (req, res) => {
     role.permissions = [...new Set(req.body.permissions.map(String))];
   }
   if (typeof req.body.isActive === 'boolean') role.isActive = req.body.isActive;
+  if (req.body.dataScope !== undefined) {
+    role.dataScope = req.body.dataScope === 'department' ? 'department' : 'all';
+  }
   await role.save();
+  invalidateRoleCache();
 
   if (role.name !== previousName) {
     await User.updateMany({ role: previousName, deletedAt: null }, { $set: { role: role.name } });
+  }
+
+  if (req.body.dataScope !== undefined) {
+    await User.updateMany({ role: role.name, deletedAt: null }, { $set: { dataScope: role.dataScope } });
   }
 
   // Synchronize allowed routes and permissions to employees assigned this role,

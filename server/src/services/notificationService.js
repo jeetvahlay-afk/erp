@@ -49,7 +49,13 @@ const notifyActiveRoles = async (roles, notification) => {
 const dispatchNotifications = async (notification) => {
   try {
     const records = await createNotifications(notification);
-    if (notification.sendEmail) setImmediate(() => sendNotificationEmails(notification));
+    if (notification.sendEmail) {
+      setImmediate(() => {
+        sendNotificationEmails(notification).catch((err) => {
+          logger.error('Background notification email delivery failed', { error: err.message });
+        });
+      });
+    }
     return records;
   } catch (error) {
     logger.error('Unable to create in-app notification', { error: error.message });
@@ -65,7 +71,13 @@ const dispatchToActiveRoles = async (roles, notification) => {
       deletedAt: null,
     }).distinct('_id');
     const records = await createNotifications({ ...notification, recipients });
-    if (notification.sendEmail) setImmediate(() => sendNotificationEmails({ ...notification, recipients }));
+    if (notification.sendEmail) {
+      setImmediate(() => {
+        sendNotificationEmails({ ...notification, recipients }).catch((err) => {
+          logger.error('Background role notification email delivery failed', { error: err.message });
+        });
+      });
+    }
     return records;
   } catch (error) {
     logger.error('Unable to create role notification', { roles, error: error.message });

@@ -56,6 +56,9 @@ const getInterviews = asyncHandler(async (req, res) => {
   if (req.query.stage) query.stage = req.query.stage;
   if (req.query.status) query.status = req.query.status;
   if (req.query.search) query.$text = { $search: String(req.query.search).trim() };
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    query.department = new RegExp(`^${String(req.user.department).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  }
   const interviews = await Interview.find(query).sort({ entryDate: -1, createdAt: -1 }).lean();
   res.json(interviews);
 });
@@ -69,7 +72,22 @@ const getInterviewById = asyncHandler(async (req, res) => {
 
 const createInterview = asyncHandler(async (req, res) => {
   const payload = normalizePayload(req.body);
-  if (!payload.candidateName) throw new AppError('Candidate name is required', 400, 'VALIDATION_ERROR');
+  if (!payload.candidateName || payload.candidateName.trim().length < 2) {
+    throw new AppError('Candidate name is required and must be at least 2 characters', 400, 'VALIDATION_ERROR');
+  }
+  if (!payload.phoneNumber || payload.phoneNumber.replace(/\D/g, '').length < 7) {
+    throw new AppError('Phone number is required and must contain valid phone digits', 400, 'VALIDATION_ERROR');
+  }
+  if (!payload.candidatePost || payload.candidatePost.trim().length < 2) {
+    throw new AppError('Candidate post / designation is required', 400, 'VALIDATION_ERROR');
+  }
+  const comments = (payload.comments || payload.remarks || '').trim();
+  if (!comments || comments.length < 5) {
+    throw new AppError('Comments / Notes are mandatory and must be at least 5 characters', 400, 'VALIDATION_ERROR');
+  }
+  if (payload.branch && !['Ahmedabad', 'Vadodara'].includes(payload.branch)) {
+    throw new AppError('Branch must be either Ahmedabad or Vadodara', 400, 'VALIDATION_ERROR');
+  }
   const interview = await Interview.create({ ...payload, createdBy: req.user._id, updatedBy: req.user._id });
   await writeAuditLog(req, 'interview.created', 'Interview', interview._id, { candidateName: interview.candidateName });
   res.status(201).json(interview);
@@ -171,4 +189,35 @@ const decideProbation = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getInterviews, getInterviewById, createInterview, updateInterview, deleteInterview, decideProbation };
+const uploadCandidateCv = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    throw new AppError('No CV document uploaded', 400, 'FILE_REQUIRED');
+  }
+
+  const formatSize = (bytes) => {
+    if (!bytes || isNaN(bytes)) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  };
+
+  const relativeUrl = `/uploads/documents/resumes/${req.file.filename}`;
+
+  res.status(201).json({
+    message: 'Candidate CV uploaded successfully',
+    cvUrl: relativeUrl,
+    fileName: req.file.originalname,
+    fileSize: formatSize(req.file.size),
+    bytes: req.file.size,
+  });
+});
+
+module.exports = {
+  getInterviews,
+  getInterviewById,
+  createInterview,
+  updateInterview,
+  deleteInterview,
+  decideProbation,
+  uploadCandidateCv,
+};

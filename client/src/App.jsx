@@ -57,6 +57,8 @@ const AttendanceDetail = lazy(() => import('./pages/AttendanceDetail'));
 const ManageInterviews = lazy(() => import('./pages/ManageInterviews'));
 const InterviewDetails = lazy(() => import('./pages/InterviewDetails'));
 const EditCandidate = lazy(() => import('./pages/EditCandidate'));
+const ManageAgreements = lazy(() => import('./pages/ManageAgreements'));
+const CandidateAgreementSign = lazy(() => import('./pages/CandidateAgreementSign'));
 const ManageDepartments = lazy(() => import('./pages/ManageDepartments'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const EmployeeWorkspacePage = lazy(() => import('./pages/EmployeeWorkspacePage'));
@@ -75,6 +77,7 @@ const App = () => (
       <Route path="/forgot-password" element={<PasswordRecovery />} />
       <Route path="/reset-password" element={<PasswordRecovery reset />} />
       <Route path="/unauthorized" element={<Forbidden />} />
+      <Route path="/candidate-agreement/:id" element={<CandidateAgreementSign />} />
       <Route path="/assessment/*" element={<AssessmentRedirect />} />
       <Route path="/assessment" element={<AssessmentRedirect />} />
 
@@ -118,6 +121,8 @@ const App = () => (
 
           <Route element={<ProtectedRoute allowedRoles={RECRUITMENT_ROLES} allowedPermissions={['recruitment.read']} />}>
             <Route path="manage-interviews" element={<ManageInterviews />} />
+            <Route path="manage-agreements" element={<ManageAgreements />} />
+            <Route path="manage-agreements/:candidateId" element={<ManageAgreements />} />
             <Route path="interview/:id" element={<InterviewDetails />} />
             <Route path="edit-candidate/:id" element={<EditCandidate />} />
           </Route>

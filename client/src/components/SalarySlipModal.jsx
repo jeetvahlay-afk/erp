@@ -76,9 +76,22 @@ const getTodayChequeDate = () => {
 
 export default function SalarySlipModal({ open, onClose, employee, structure = {} }) {
   const now = new Date();
+  const parsedPeriod = useMemo(() => {
+    const mStr = structure?.month || employee?.month;
+    if (mStr && typeof mStr === 'string' && mStr.includes('-')) {
+      const parts = mStr.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      if (!isNaN(y) && !isNaN(m) && m >= 0 && m <= 11) {
+        return { month: m, year: y };
+      }
+    }
+    return null;
+  }, [structure?.month, employee?.month]);
+
   const [activeTab, setActiveTab] = useState('slip'); // 'slip' | 'cheque'
-  const [month, setMonth] = useState(now.getMonth());
-  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(parsedPeriod ? parsedPeriod.month : now.getMonth());
+  const [year, setYear] = useState(parsedPeriod ? parsedPeriod.year : now.getFullYear());
   const [salaryDays, setSalaryDays] = useState(30);
   const [leavesTaken, setLeavesTaken] = useState(0);
   const [allowedLeaves, setAllowedLeaves] = useState(0);
@@ -188,6 +201,13 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
               margin: 0 !important;
               padding: 0 !important;
               box-sizing: border-box !important;
+            }
+            #printable-payslip, #printable-payslip * {
+              border-radius: 0 !important;
+            }
+            #printable-payslip {
+              box-shadow: none !important;
+              border-radius: 0 !important;
             }
           </style>
         </head>
@@ -354,8 +374,8 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
                 type="text"
                 value={empPan}
                 onChange={(e) => setEmpPan(e.target.value.toUpperCase())}
-                placeholder="ABCDE1234F"
-                className="w-24 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-center font-mono font-bold text-slate-800 dark:text-slate-200 uppercase"
+                placeholder="Enter PAN number"
+                className="w-28 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-center font-mono font-bold text-slate-800 dark:text-slate-200 uppercase"
               />
             </div>
           </div>
@@ -363,78 +383,81 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
 
         {/* Tab 1: Official Salary Slip Document View */}
         {activeTab === 'slip' && (
-          <div className="overflow-x-auto p-2 bg-slate-100 dark:bg-slate-950/40 rounded-xl flex justify-center">
+          <div className="overflow-x-auto p-4 sm:p-6 bg-slate-100 dark:bg-slate-950/70 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-center">
             <div
               ref={slipRef}
               id="printable-payslip"
-              className="w-[794px] min-w-[794px] max-w-[794px] min-h-[1050px] bg-white text-[#1b2a44] font-sans text-xs shadow-md rounded-xl overflow-hidden border border-[#e1d9c4] box-border flex flex-col justify-between"
+              className="w-[794px] min-w-[794px] max-w-[794px] min-h-[1050px] bg-white text-slate-900 font-sans text-xs shadow-xl rounded-none overflow-hidden border border-slate-300 box-border flex flex-col justify-between select-text"
             >
-              {/* Header Band */}
+              {/* Header Band - White Corporate Theme */}
               <div>
-                <div className="bg-[#1a2d42] text-white px-8 py-5 flex items-center justify-between border-b-2 border-[#c59a58]">
+                <div className="bg-white text-slate-900 px-8 py-5 flex items-center justify-between border-t-4 border-blue-600 border-b border-slate-200">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 min-w-[56px] min-h-[56px] rounded-full bg-white border-2 border-[#c59a58] flex items-center justify-center overflow-hidden shrink-0 shadow-sm p-1">
+                    <div className="w-16 h-16 min-w-[64px] min-h-[64px] rounded-lg bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs p-1">
                       <img
-                        src="/auth-logo.png"
-                        alt="Company Logo"
+                        src="/vahlay-logo.jpg"
+                        alt="Vahlay Consulting Logo"
                         className="w-full h-full object-contain"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = '/auth-logo.png';
+                        }}
                       />
                     </div>
                     <div>
-                      <h1 className="text-xl font-bold tracking-wider text-white m-0 leading-tight">
-                        TEAMHUB ENTERPRISE
+                      <h1 className="text-xl font-black tracking-tight text-slate-900 m-0 leading-tight">
+                        VAHLAY CONSULTING
                       </h1>
-                      <p className="text-[11px] text-[#c7d0de] mt-0.5 mb-0.5 leading-normal font-normal">
-                        Corporate Headquarters &bull; Ahmedabad, Gujarat, India
+                      <p className="text-[11px] text-slate-500 mt-1 mb-1 leading-normal font-medium">
+                        Bespoke Solutions &bull; Corporate Headquarters &bull; Ahmedabad, Gujarat, India
                       </p>
-                      <div className="text-[10px] font-bold text-[#dfbe8a] tracking-[0.14em] uppercase">
-                        USA &bull; CANADA &bull; BHARAT
+                      <div className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-[9.5px] font-bold text-blue-700 tracking-[0.12em] uppercase">
+                        SINCE 2022 &bull; USA &bull; CANADA &bull; BHARAT
                       </div>
                     </div>
                   </div>
 
                   <div className="text-right shrink-0 flex flex-col items-end justify-center">
-                    <div className="text-[10px] font-bold text-[#dfbe8a] tracking-[0.12em] uppercase">
+                    <div className="inline-block px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-700 tracking-[0.12em] uppercase">
                       CONFIDENTIAL PAYSLIP
                     </div>
-                    <div className="text-xl font-bold text-white tracking-tight font-sans leading-tight mt-0.5">
+                    <div className="text-2xl font-black text-blue-600 tracking-tight font-sans leading-tight mt-1">
                       {MONTH_NAMES[month]} {year}
                     </div>
-                    <div className="text-[9.5px] text-[#93a7c1] font-medium tracking-wide mt-0.5 leading-tight">
+                    <div className="text-[10px] text-slate-400 font-medium tracking-wide mt-0.5 leading-tight">
                       System Generated &bull; Verified Record
                     </div>
                   </div>
                 </div>
 
                 {/* Meta Details Table */}
-                <table className="w-full border-collapse border-b border-[#e1d9c4] text-xs">
+                <table className="w-full border-collapse border-b border-slate-200 text-xs rounded-none">
                   <tbody>
-                    <tr className="border-b border-[#e8dfcf]">
-                      <td className="w-[18%] bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                    <tr className="border-b border-slate-200">
+                      <td className="w-[18%] bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                         EMPLOYEE NAME
                       </td>
-                      <td className="w-[32%] px-4 py-2.5 font-bold text-[#1a2d42] text-[12.5px] border-r border-[#e8dfcf]">
+                      <td className="w-[32%] px-4 py-2.5 font-bold text-slate-900 text-[12.5px] border-r border-slate-200">
                         {employee.name}
                       </td>
-                      <td className="w-[18%] bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                      <td className="w-[18%] bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                         EMPLOYEE PAN
                       </td>
-                      <td className="w-[32%] px-4 py-2.5 font-mono font-bold text-[#1a2d42] text-[12.5px]">
+                      <td className="w-[32%] px-4 py-2.5 font-mono font-bold text-slate-900 text-[12.5px]">
                         {empPan || '—'}
                       </td>
                     </tr>
                     <tr>
-                      <td className="bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                      <td className="bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                         DESIGNATION / DEPT
                       </td>
-                      <td className="px-4 py-2.5 font-bold text-[#1a2d42] text-[12.5px] border-r border-[#e8dfcf]">
+                      <td className="px-4 py-2.5 font-bold text-slate-900 text-[12.5px] border-r border-slate-200">
                         {employee.designation || 'Staff'} &bull; {employee.department || 'General'}
                       </td>
-                      <td className="bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                      <td className="bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                         EMPLOYEE ID
                       </td>
-                      <td className="px-4 py-2.5 font-mono font-bold text-[#1a2d42] text-[12.5px]">
+                      <td className="px-4 py-2.5 font-mono font-bold text-slate-900 text-[12.5px]">
                         {employee.employeeId || 'Vah0001'}
                       </td>
                     </tr>
@@ -443,55 +466,55 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
               </div>
 
               {/* Middle Section: Components, Attendance, Net Pay */}
-              <div className="flex-1 flex flex-col justify-between p-6 space-y-6">
+              <div className="flex-1 flex flex-col justify-between p-6 space-y-6 bg-white">
                 {/* 1. Earnings & Deductions Columns */}
                 <div>
                   <div className="grid grid-cols-2 gap-8">
                     {/* Earnings Column */}
                     <div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9c6928] pb-1.5 border-b-2 border-[#a9772e] mb-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-blue-700 pb-1.5 border-b-2 border-blue-600 mb-3">
                         EARNINGS &amp; ALLOWANCES
                       </h3>
                       <div className="space-y-2">
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Basic Payment</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Basic Payment</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.basic)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">House Rent Allowance (HRA)</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">House Rent Allowance (HRA)</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.hra)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Transport Allowance</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Transport Allowance</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.transport)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Security Allowance</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Security Allowance</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.security)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Other Allowances</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Other Allowances</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.otherAllowances)}
                           </span>
                         </div>
                       </div>
-                      <div className="pt-2.5 border-t-2 border-[#1a2d42] flex items-center justify-between font-bold mt-4">
-                        <span className="text-[#1a2d42] text-[13px]">Total Gross Salary</span>
-                        <span className="font-mono text-[#2d7a4f] text-sm">
+                      <div className="pt-2.5 border-t-2 border-slate-300 flex items-center justify-between font-bold mt-4">
+                        <span className="text-slate-900 text-[13px]">Total Gross Salary</span>
+                        <span className="font-mono text-emerald-700 text-sm font-bold">
                           {formatCurrency(calculations.gross)}
                         </span>
                       </div>
@@ -499,51 +522,51 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
 
                     {/* Deductions Column */}
                     <div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9c6928] pb-1.5 border-b-2 border-[#a9772e] mb-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-blue-700 pb-1.5 border-b-2 border-blue-600 mb-3">
                         DEDUCTIONS &amp; ADVANCES
                       </h3>
                       <div className="space-y-2">
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Contribution to PF</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Contribution to PF</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.pf)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Income Tax Deduction (TDS)</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Income Tax Deduction (TDS)</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.tax)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Security Deposit</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Security Deposit</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.secDeposit)}
                           </span>
                         </div>
                         <div className="flex items-baseline justify-between py-1 text-xs">
-                          <span className="text-[#1a2d42] font-medium shrink-0">Other Deductions</span>
-                          <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                          <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                          <span className="text-slate-700 font-medium shrink-0">Other Deductions</span>
+                          <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                          <span className="font-mono font-semibold text-slate-900 shrink-0">
                             {formatCurrency(calculations.otherDeductions)}
                           </span>
                         </div>
                         {calculations.adv > 0 && (
                           <div className="flex items-baseline justify-between py-1 text-xs">
-                            <span className="text-[#1a2d42] font-medium shrink-0">Salary Advance Adjusted</span>
-                            <span className="flex-1 mx-2 border-b border-dotted border-[#c8bfae] relative -top-0.5" />
-                            <span className="font-mono font-semibold text-[#1a2d42] shrink-0">
+                            <span className="text-slate-700 font-medium shrink-0">Salary Advance Adjusted</span>
+                            <span className="flex-1 mx-2 border-b border-dotted border-slate-300 relative -top-0.5" />
+                            <span className="font-mono font-semibold text-slate-900 shrink-0">
                               {formatCurrency(calculations.adv)}
                             </span>
                           </div>
                         )}
                       </div>
-                      <div className="pt-2.5 border-t-2 border-[#1a2d42] flex items-center justify-between font-bold mt-4">
-                        <span className="text-[#1a2d42] text-[13px]">Total Deductions</span>
-                        <span className="font-mono text-[#a83232] text-sm">
+                      <div className="pt-2.5 border-t-2 border-slate-300 flex items-center justify-between font-bold mt-4">
+                        <span className="text-slate-900 text-[13px]">Total Deductions</span>
+                        <span className="font-mono text-rose-700 text-sm font-bold">
                           {formatCurrency(calculations.totalDeductions)}
                         </span>
                       </div>
@@ -552,34 +575,34 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
                 </div>
 
                 {/* 2. Attendance Summary Table */}
-                <div className="overflow-hidden rounded-lg border border-[#e1d9c4]">
-                  <table className="w-full border-collapse text-xs">
+                <div className="overflow-hidden rounded-none border border-slate-200">
+                  <table className="w-full border-collapse text-xs rounded-none">
                     <tbody>
-                      <tr className="border-b border-[#e8dfcf]">
-                        <td className="w-[22%] bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                      <tr className="border-b border-slate-200">
+                        <td className="w-[22%] bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                           TOTAL SALARY DAYS
                         </td>
-                        <td className="w-[28%] px-4 py-2.5 font-mono font-bold text-[#1a2d42] text-[13px] border-r border-[#e8dfcf]">
+                        <td className="w-[28%] px-4 py-2.5 font-mono font-bold text-slate-900 text-[13px] border-r border-slate-200">
                           {salaryDays}
                         </td>
-                        <td className="w-[22%] bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                        <td className="w-[22%] bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                           DAYS PRESENT / PAID
                         </td>
-                        <td className="w-[28%] px-4 py-2.5 font-mono font-bold text-[#226746] text-[13px]">
+                        <td className="w-[28%] px-4 py-2.5 font-mono font-bold text-emerald-700 text-[13px]">
                           {calculations.paidDays}
                         </td>
                       </tr>
                       <tr>
-                        <td className="bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                        <td className="bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                           LEAVES TAKEN
                         </td>
-                        <td className="px-4 py-2.5 font-mono font-bold text-[#8c2d2d] text-[13px] border-r border-[#e8dfcf]">
-                          {leavesTaken} <span className="text-[11px] font-normal text-gray-500 font-sans">(Allowed: {allowedLeaves})</span>
+                        <td className="px-4 py-2.5 font-mono font-bold text-rose-700 text-[13px] border-r border-slate-200">
+                          {leavesTaken} <span className="text-[11px] font-normal text-slate-500 font-sans">(Allowed: {allowedLeaves})</span>
                         </td>
-                        <td className="bg-[#f8f5ee] px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-[#6b7280]">
+                        <td className="bg-slate-50 px-4 py-2.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-500">
                           LOSS OF PAY (LOP)
                         </td>
-                        <td className="px-4 py-2.5 font-mono font-bold text-[#8c2d2d] text-[13px]">
+                        <td className="px-4 py-2.5 font-mono font-bold text-rose-700 text-[13px]">
                           {lopDays} Days
                         </td>
                       </tr>
@@ -588,76 +611,76 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
                 </div>
 
                 {/* 3. Net Pay Highlight Banner */}
-                <div className="relative overflow-hidden rounded-xl border border-[#c4ded0] bg-[#eef7f0] px-5 py-3.5 flex items-center justify-between gap-4">
-                  <div className="absolute left-0 top-0 bottom-0 w-2 bg-[#226746]" />
+                <div className="relative overflow-hidden rounded-none border-2 border-blue-600 bg-blue-50/70 px-5 py-3.5 flex items-center justify-between gap-4">
+                  <div className="absolute left-0 top-0 bottom-0 w-2.5 bg-blue-600" />
                   <div className="pl-2">
-                    <strong className="block text-sm sm:text-base font-bold text-[#1a2d42] leading-snug">
+                    <strong className="block text-sm sm:text-base font-bold text-slate-900 leading-snug">
                       {calculations.netWords}
                     </strong>
-                    <span className="text-[11px] text-[#4d5c6f] mt-1 block leading-tight font-medium">
+                    <span className="text-[11px] text-slate-600 mt-1 block leading-tight font-medium">
                       Salary after deductions: {formatCurrency(calculations.gross - calculations.totalDeductions + calculations.adv)} &bull; Advance: {formatCurrency(calculations.adv)}
                     </span>
                   </div>
                   <div className="text-right shrink-0">
-                    <span className="block text-[10px] uppercase tracking-wider text-[#226746] font-bold leading-tight">
+                    <span className="block text-[10px] uppercase tracking-wider text-blue-700 font-bold leading-tight">
                       NET SALARY PAYABLE
                     </span>
-                    <span className="block text-2xl font-black font-mono text-[#226746] leading-none mt-1">
+                    <span className="block text-2xl font-black font-mono text-blue-700 leading-none mt-1">
                       {formatCurrency(calculations.netPay)}
                     </span>
                   </div>
                 </div>
 
                 {/* 4. Disbursement Details */}
-                <div className="p-4 rounded-xl bg-[#faf8f5] border border-[#e8dfcf] text-[10.5px] text-[#556275]">
-                  <div className="flex items-center justify-between border-b border-[#e8dfcf] pb-2 mb-2">
-                    <span className="font-bold text-[#8a5f22] uppercase tracking-wider text-[10px]">
+                <div className="p-4 rounded-none bg-slate-50 border border-slate-200 text-[10.5px] text-slate-600">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-2">
+                    <span className="font-bold text-blue-800 uppercase tracking-wider text-[10px]">
                       Disbursement &amp; Statutory Compliance Details
                     </span>
-                    <span className="text-[10px] font-semibold text-[#226746]">
+                    <span className="text-[10px] font-semibold text-emerald-700">
                       Mode: Electronic Bank Transfer (NEFT/RTGS)
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
                     <div>
-                      <span className="text-gray-500">Processing Status:</span>{' '}
+                      <span className="text-slate-500">Processing Status:</span>{' '}
                       <strong className="text-emerald-700">Verified &amp; Paid</strong>
                     </div>
                     <div>
-                      <span className="text-gray-500">Tax Regime:</span>{' '}
-                      <strong className="text-gray-800">Standard TDS Withholding</strong>
+                      <span className="text-slate-500">Tax Regime:</span>{' '}
+                      <strong className="text-slate-800">Standard TDS Withholding</strong>
                     </div>
                     <div>
-                      <span className="text-gray-500">Document Validity:</span>{' '}
-                      <strong className="text-gray-800">Official Electronic Record</strong>
+                      <span className="text-slate-500">Document Validity:</span>{' '}
+                      <strong className="text-slate-800">Official Electronic Record</strong>
                     </div>
                   </div>
                 </div>
 
                 {/* 5. Signature & Authorisation Block */}
-                <div className="pt-4 border-t border-[#e1d9c4] flex items-end justify-between gap-6 text-xs">
-                  <div className="text-[#4b5a72] max-w-sm text-xs">
-                    <p className="text-[10px] text-[#6b7280] mb-2 leading-relaxed">
+                <div className="pt-4 border-t border-slate-200 flex items-end justify-between gap-6 text-xs bg-white">
+                  <div className="text-slate-600 max-w-sm text-xs">
+                    <p className="text-[10px] text-slate-500 mb-2 leading-relaxed">
                       This is an official system-generated pay slip and does not require a physical stamp.
                     </p>
-                    <div className="font-bold text-[#1a2d42] text-[13px]">
+                    <div className="font-bold text-slate-900 text-[13px]">
                       Authorised by HR / Operations Management
                     </div>
-                    <div className="text-[11.5px] font-semibold text-[#8a5f22]">
-                      Human Resources Directorate &bull; TeamHub Enterprise
+                    <div className="text-[11.5px] font-semibold text-blue-700">
+                      Human Resources Directorate &bull; Vahlay Consulting
                     </div>
                   </div>
 
                   <div className="text-center shrink-0">
-                    <div className="text-[10px] font-bold text-[#1a2d42] mb-2 uppercase tracking-widest font-sans flex items-center justify-center gap-1">
+                    <div className="text-[10px] font-bold text-slate-900 mb-2 uppercase tracking-widest font-sans flex items-center justify-center gap-1">
                       <UserCheck size={14} className="text-emerald-600" />
                       AUTHORISED SIGNATORY
                     </div>
-                    <div className="w-44 border-t-2 border-[#1a2d42] mx-auto pt-1.5 text-center">
-                      <span className="block font-bold text-[#1a2d42] text-[11.5px] leading-tight">
+                    <div className="w-44 border-t-2 border-slate-800 mx-auto pt-1.5 text-center rounded-none">
+                      <span className="block font-bold text-slate-900 text-[11.5px] leading-tight">
                         Harshad Prajapati
                       </span>
-                      <span className="block text-[10px] text-[#8a5f22] font-semibold leading-tight mt-0.5">
+                      <span className="block text-[10px] text-blue-700 font-semibold leading-tight mt-0.5">
                         Manager &bull; Payroll Administration
                       </span>
                     </div>
@@ -665,12 +688,16 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
                 </div>
               </div>
 
-              {/* Bottom Footer Band */}
-              <div className="bg-[#1a2d42] text-[#93a7c1] py-2.5 px-8 flex items-center justify-between text-[9.5px] border-t-2 border-[#c59a58]">
-                <div>
-                  TeamHub Enterprise &bull; Ahmedabad, Gujarat, India &bull; info@vahlayconsulting.com
+              {/* Bottom Footer Band - White Corporate Theme */}
+              <div className="bg-slate-50 text-slate-500 py-3 px-8 flex items-center justify-between text-[10px] border-t-2 border-slate-200">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-700">Vahlay Consulting</span>
+                  <span>&bull;</span>
+                  <span>Ahmedabad, Gujarat, India</span>
+                  <span>&bull;</span>
+                  <span className="text-blue-600">info@vahlayconsulting.com</span>
                 </div>
-                <div className="font-semibold text-[#dfbe8a] tracking-wider uppercase">
+                <div className="font-bold text-slate-600 tracking-wider uppercase text-[9.5px]">
                   Confidential &bull; System Generated Record &bull; Page 1 of 1
                 </div>
               </div>
@@ -696,12 +723,12 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
 
             <div
               ref={chequeRef}
-              className="w-[202mm] h-[92mm] bg-[#fbfdfb] border-2 border-[#718096] rounded-lg shadow-lg relative p-4 font-sans text-slate-800 select-none overflow-hidden shrink-0"
+              className="w-[202mm] h-[92mm] bg-[#fbfdfb] border-2 border-[#718096] rounded-none shadow-lg relative p-4 font-sans text-slate-800 select-none overflow-hidden shrink-0"
               style={{ minWidth: '202mm', minHeight: '92mm' }}
             >
               {/* Crossing */}
               {chequeCrossing !== 'NONE / BEARER' && (
-                <div className="absolute top-4 left-6 -rotate-35 border-t-2 border-b-2 border-slate-900 px-3 py-0.5 text-[11px] font-bold tracking-wider">
+                <div className="absolute top-4 left-6 -rotate-35 border-t-2 border-b-2 border-slate-900 px-3 py-0.5 text-[11px] font-bold tracking-wider rounded-none">
                   {chequeCrossing}
                 </div>
               )}
@@ -713,7 +740,7 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
                   {chequeDateDigits.map((digit, idx) => (
                     <div
                       key={idx}
-                      className="w-5 h-6 border border-slate-700 flex items-center justify-center font-mono font-bold text-xs bg-white"
+                      className="w-5 h-6 border border-slate-700 flex items-center justify-center font-mono font-bold text-xs bg-white rounded-none"
                     >
                       {digit}
                     </div>
@@ -745,7 +772,7 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
               )}
 
               {/* Amount in Figures Box */}
-              <div className="absolute top-28 right-8 w-44 h-11 border-2 border-slate-800 rounded bg-white flex items-center justify-between px-3">
+              <div className="absolute top-28 right-8 w-44 h-11 border-2 border-slate-800 rounded-none bg-white flex items-center justify-between px-3">
                 <span className="text-lg font-bold text-slate-700">₹</span>
                 <span className="font-mono font-bold text-lg text-slate-900 tracking-wider">
                   *** {calculations.netPay.toLocaleString('en-IN')}/- ***
@@ -754,7 +781,7 @@ export default function SalarySlipModal({ open, onClose, employee, structure = {
 
               {/* Signatory */}
               <div className="absolute bottom-6 right-8 text-right">
-                <p className="text-[11px] font-bold text-slate-700">For TeamHub Enterprise</p>
+                <p className="text-[11px] font-bold text-slate-700">For Vahlay Consulting</p>
                 <div className="h-10" />
                 <p className="text-[10px] text-slate-500 border-t border-slate-400 pt-0.5">Authorised Signatory</p>
               </div>

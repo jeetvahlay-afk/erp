@@ -117,14 +117,24 @@ const getMyBreaks = asyncHandler(async (req, res) => {
 
 const getUserBreaks = asyncHandler(async (req, res) => {
   let targetUserId = req.params.userId;
+  let targetUserDoc = null;
   if (!mongoose.isValidObjectId(targetUserId)) {
-    const user = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id');
-    if (user) {
-      targetUserId = user._id;
+    targetUserDoc = await User.findOne({ employeeId: targetUserId, deletedAt: null }).select('_id department');
+    if (targetUserDoc) {
+      targetUserId = targetUserDoc._id;
     } else {
       return res.json([]);
     }
+  } else if (req.user?.dataScope === 'department' && req.user.department) {
+    targetUserDoc = await User.findById(targetUserId).select('department');
   }
+
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    if (!targetUserDoc || targetUserDoc.department !== req.user.department) {
+      return res.json([]);
+    }
+  }
+
   const query = { user: targetUserId };
   if (req.query.from || req.query.to) {
     query.startTime = {};

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const AssessmentCandidate = require('../models/AssessmentCandidate');
 const Interview = require('../models/Interview');
@@ -21,38 +22,42 @@ const POSITION_TITLES = {
   graphic_designer: 'Graphic Designer',
 };
 
-const getOtpEmailHtml = (fullName, candidateCode, otp, driveLocation, position) => `
-<!DOCTYPE html>
+const getOtpEmailHtml = (fullName, candidateCode, otp, driveLocation, position, email = '') => {
+  const formattedRole = POSITION_TITLES[position] || (position ? position.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Technical Role');
+  const portalUrl = (process.env.ASSESSMENT_PORTAL_URL || 'http://localhost:5174').replace(/\/$/, '');
+  const verifyLink = `${portalUrl}/verify?otp=${encodeURIComponent(otp)}&email=${encodeURIComponent(email || '')}&candidateCode=${encodeURIComponent(candidateCode || '')}`;
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Assessment Verification Code - Vahlay Consulting</title>
+  <title>Assessment Verification - Vahlay Consulting</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f3f4f6; padding: 32px 12px;">
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #1e293b;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f8fafc; padding: 36px 12px;">
     <tr>
       <td align="center">
         <!-- Main Email Container -->
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 580px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.03); border: 1px solid #e5e7eb;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 540px; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
           
           <!-- Header Banner -->
           <tr>
-            <td style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%); padding: 36px 32px 30px 32px; text-align: center;">
+            <td style="padding: 28px 32px 20px 32px; border-bottom: 1px solid #f1f5f9; text-align: left;">
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                 <tr>
-                  <td align="center">
-                    <!-- Badge -->
-                    <div style="display: inline-block; padding: 5px 14px; background-color: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 9999px; font-size: 11px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px;">
-                      Recruitment Drive · ${driveLocation || 'Ahmedabad'}
-                    </div>
-                    <!-- Brand Title -->
-                    <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 800; letter-spacing: 1px; line-height: 1.2;">
+                  <td>
+                    <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px;">
                       VAHLAY CONSULTING
-                    </h1>
-                    <p style="margin: 6px 0 0 0; color: rgba(255, 255, 255, 0.85); font-size: 12px; letter-spacing: 2px; text-transform: uppercase;">
-                      Bespoke Solutions · Since 2022
+                    </h2>
+                    <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b; font-weight: 500;">
+                      Candidate Assessment Portal
                     </p>
+                  </td>
+                  <td align="right">
+                    <span style="font-size: 11px; font-weight: 600; color: #475569; background-color: #f1f5f9; padding: 4px 10px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                      ${driveLocation || 'Ahmedabad'}
+                    </span>
                   </td>
                 </tr>
               </table>
@@ -61,109 +66,89 @@ const getOtpEmailHtml = (fullName, candidateCode, otp, driveLocation, position) 
 
           <!-- Body Content -->
           <tr>
-            <td style="padding: 36px 36px 28px 36px;">
+            <td style="padding: 28px 32px 24px 32px;">
               
               <!-- Greeting -->
-              <p style="margin: 0 0 14px 0; font-size: 17px; font-weight: 700; color: #111827;">
+              <p style="margin: 0 0 12px 0; font-size: 15px; font-weight: 600; color: #0f172a;">
                 Dear ${fullName || 'Candidate'},
               </p>
               
-              <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #4b5563;">
-                Thank you for applying for the <strong style="color: #111827;">${position || 'Executive'}</strong> position at Vahlay Consulting. Please use the verification code below to verify your email address and unlock your assessment desk.
+              <p style="margin: 0 0 20px 0; font-size: 13.5px; line-height: 1.6; color: #475569;">
+                Thank you for applying for the <strong style="color: #0f172a;">${formattedRole}</strong> position at Vahlay Consulting. Please use the verification code below to verify your email address and continue to your assessment desk.
               </p>
 
               <!-- Candidate Summary Strip -->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f9fafb; border-radius: 12px; border: 1px solid #edf2f7; margin-bottom: 28px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 24px;">
                 <tr>
-                  <td style="padding: 14px 18px; border-right: 1px solid #edf2f7; width: 50%;">
-                    <div style="font-size: 11px; text-transform: uppercase; color: #6b7280; font-weight: 600; letter-spacing: 0.5px;">Candidate ID</div>
-                    <div style="font-family: 'SF Mono', Consolas, Monaco, monospace; font-size: 13px; font-weight: 700; color: #111827; margin-top: 3px;">
+                  <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px;">Candidate ID</div>
+                    <div style="font-family: ui-monospace, 'SF Mono', Consolas, monospace; font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 2px;">
                       ${candidateCode}
                     </div>
                   </td>
-                  <td style="padding: 14px 18px; width: 50%;">
-                    <div style="font-size: 11px; text-transform: uppercase; color: #6b7280; font-weight: 600; letter-spacing: 0.5px;">Applied Role</div>
-                    <div style="font-size: 13px; font-weight: 700; color: #111827; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                      ${position || 'Technical Assessment'}
+                  <td style="padding: 12px 16px; width: 50%;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px;">Applied Role</div>
+                    <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 2px;">
+                      ${formattedRole}
                     </div>
                   </td>
                 </tr>
               </table>
 
               <!-- OTP Verification Box -->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background: linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%); border: 2px dashed #93c5fd; border-radius: 16px; margin-bottom: 28px; text-align: center;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 24px; text-align: center;">
                 <tr>
-                  <td style="padding: 28px 20px;">
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #2563eb; margin-bottom: 10px;">
-                      Your 6-Digit Verification Code
+                  <td style="padding: 24px 20px;">
+                    <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 8px;">
+                      Verification Code
                     </div>
                     
                     <!-- Digits -->
-                    <div style="font-family: 'SF Mono', Consolas, Monaco, 'Courier New', monospace; font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #1d4ed8; padding-left: 12px; margin: 8px 0 12px 0;">
+                    <div style="font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 34px; font-weight: 700; letter-spacing: 6px; color: #0f172a; margin: 0 0 10px 0; user-select: all; -webkit-user-select: all;">
                       ${otp}
                     </div>
 
                     <!-- Expiry Note -->
-                    <div style="display: inline-block; padding: 4px 12px; background-color: #ffffff; border: 1px solid #bfdbfe; border-radius: 9999px; font-size: 12px; font-weight: 600; color: #475569;">
-                      ⏱ Code valid for <strong style="color: #111827;">15 minutes</strong>
+                    <div style="font-size: 12px; color: #64748b; margin-bottom: 18px;">
+                      Code valid for 15 minutes &bull; Single-use verification
                     </div>
+
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                      <tr>
+                        <td style="border-radius: 8px; background-color: #2563eb; text-align: center;">
+                          <a href="${verifyLink}" target="_blank" style="background-color: #2563eb; border: 1px solid #2563eb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; font-weight: 600; color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 8px; display: inline-block;">
+                            Verify Email Automatically &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
 
-              <!-- Stepwise Assessment Pipeline -->
-              <div style="margin-bottom: 24px; padding: 18px 20px; background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
-                <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #334155; letter-spacing: 0.5px; margin-bottom: 10px;">
-                  Assessment Journey Overview
-                </div>
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size: 12px; color: #475569; line-height: 1.8;">
-                  <tr>
-                    <td style="padding: 2px 0;"><span style="color: #16a34a; font-weight: bold;">✓ Step 1:</span> Candidate Registration Completed</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 2px 0;"><span style="color: #8B1D2C; font-weight: bold;">● Step 2:</span> Email Verification <em style="color: #64748b;">(Enter the code above)</em></td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 2px 0;"><span style="color: #64748b;">○ Step 3:</span> Assessment Desk Sign In</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 2px 0;"><span style="color: #64748b;">○ Step 4:</span> Rules & Declaration</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 2px 0;"><span style="color: #64748b;">○ Step 5:</span> Live Examination (30 questions · 50 minutes)</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 2px 0;"><span style="color: #64748b;">○ Step 6:</span> Final Registration Completed</td>
-                  </tr>
-                </table>
-              </div>
-
               <!-- Important Rules -->
-              <div style="border-left: 3px solid #8B1D2C; padding-left: 14px; margin-bottom: 28px;">
-                <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #4b5563;">
+              <div style="border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 24px;">
+                <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #64748b;">
                   <strong>Important:</strong> Never share this code with anyone. Make sure to complete the assessment in one sitting on a desktop or laptop for the best experience.
                 </p>
               </div>
 
-              <p style="margin: 0; font-size: 13px; color: #4b5563;">
+              <p style="margin: 0; font-size: 13px; color: #64748b; line-height: 1.6;">
                 Best regards,<br>
-                <strong style="color: #111827;">Vahlay Consulting Recruitment Team</strong>
+                <strong style="color: #0f172a;">Vahlay Consulting Recruitment Team</strong>
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color: #f9fafb; border-top: 1px solid #f3f4f6; padding: 22px 36px; text-align: center;">
-              <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 600; color: #6b7280;">
-                Vahlay Consulting · Bespoke Solutions
+            <td style="background-color: #f8fafc; border-top: 1px solid #f1f5f9; padding: 20px 32px; text-align: center;">
+              <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 600; color: #475569;">
+                Vahlay Consulting &bull; Recruitment Drive
               </p>
-              <p style="margin: 0 0 10px 0; font-size: 11px; color: #9ca3af;">
-                Ahmedabad · Surat · Vadodara · Rajkot · Mumbai · Pune · Bangalore
-              </p>
-              <p style="margin: 0; font-size: 11px; color: #9ca3af; line-height: 1.4;">
+              <p style="margin: 0; font-size: 11px; color: #94a3b8; line-height: 1.4;">
                 This is an automated system email generated for your candidate recruitment application.<br>
-                © 2026 Vahlay Consulting. All rights reserved.
+                &copy; 2026 Vahlay Consulting. All rights reserved.
               </p>
             </td>
           </tr>
@@ -175,6 +160,7 @@ const getOtpEmailHtml = (fullName, candidateCode, otp, driveLocation, position) 
 </body>
 </html>
 `;
+};
 
 // Helper: Generate a cryptographically secure 6-digit numeric OTP
 const generateSecureOtp = () => crypto.randomInt(100000, 1000000).toString();
@@ -386,7 +372,7 @@ const getMetadata = async (_req, res, next) => {
       success: true,
       data: {
         formConfig: assessmentForm,
-        driveLocations: ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Remote', 'Mumbai', 'Pune', 'Bangalore'],
+        driveLocations: ['Ahmedabad', 'Vadodara'],
         departments: departmentList,
         departmentDetails,
         positions,
@@ -481,6 +467,7 @@ const registerCandidate = async (req, res, next) => {
       email,
       password,
       mobileNumber,
+      countryCode = '+91',
       religion,
       driveLocation = 'Ahmedabad',
       department = 'Technology',
@@ -492,15 +479,57 @@ const registerCandidate = async (req, res, next) => {
       currentLocation,
     } = req.body;
 
-    if (!fullName || !email || !password || !mobileNumber || !positionAppliedFor) {
-      return next(new AppError('Please fill in all required fields.', 400));
+    if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
+      return next(new AppError('Full name is required and must be at least 2 characters.', 400));
     }
 
-    if (password.length < 10) {
+    if (!/^[a-zA-Z\s.'-]+$/.test(fullName.trim())) {
+      return next(new AppError('Full name must contain letters and spaces only.', 400));
+    }
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+      return next(new AppError('Please enter a valid email address (e.g. name@gmail.com).', 400));
+    }
+
+    if (!password || password.length < 10) {
       return next(new AppError('Password must be at least 10 characters long.', 400));
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
+    const cleanDigits = String(mobileNumber || '').replace(/\D/g, '');
+    if (!cleanDigits || cleanDigits.length < 7 || cleanDigits.length > 15) {
+      return next(new AppError('Please provide a valid mobile number (7 to 15 digits).', 400));
+    }
+
+    const normCountry = String(countryCode || '+91').trim();
+    if (normCountry === '+91' && cleanDigits.length === 10 && !/^[6-9]/.test(cleanDigits)) {
+      return next(new AppError('Indian mobile number must start with 6, 7, 8, or 9.', 400));
+    }
+
+    if (!department) {
+      return next(new AppError('Please select a department.', 400));
+    }
+
+    if (!positionAppliedFor) {
+      return next(new AppError('Please select the position applied for.', 400));
+    }
+
+    const validDriveLocations = ['Ahmedabad', 'Vadodara'];
+    if (!driveLocation || !validDriveLocations.includes(driveLocation)) {
+      driveLocation = 'Ahmedabad';
+    }
+
+    if (req.file) {
+      const allowedExts = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg'];
+      const fileExt = path.extname(req.file.originalname || '').toLowerCase();
+      if (!allowedExts.includes(fileExt)) {
+        return next(new AppError('Invalid file format for CV. Allowed: PDF, DOC, DOCX, PNG, JPG.', 400));
+      }
+      if (req.file.size > 30 * 1024 * 1024) {
+        return next(new AppError('CV file size exceeds the 30 MB limit.', 400));
+      }
+    }
 
     // Verify if candidate data already exists in Daily Candidate Update by matching BOTH mobile number AND email
     const dailyCandidate = await findMatchingDailyCandidate(normalizedEmail, mobileNumber);
@@ -527,6 +556,23 @@ const registerCandidate = async (req, res, next) => {
       }
     }
 
+    // Determine assessmentKey and validate config BEFORE checking candidate record
+    const mapping = assessmentData.assessmentForm?.step2_positionDetails?.positionToAssessmentKey || {};
+    let assessmentKey = mapping[positionAppliedFor] || positionAppliedFor;
+    if (!assessmentData.assessments[assessmentKey]) {
+      const matchedKey = Object.keys(POSITION_TITLES).find(
+        (k) => POSITION_TITLES[k].toLowerCase() === String(positionAppliedFor).trim().toLowerCase()
+      );
+      if (matchedKey) {
+        assessmentKey = mapping[matchedKey] || matchedKey;
+      }
+    }
+    const assessmentConfig = assessmentData.assessments[assessmentKey];
+
+    if (!assessmentConfig) {
+      return next(new AppError(`No assessment questionnaire found for role: ${positionAppliedFor}`, 400));
+    }
+
     // Check if candidate already registered with this email in AssessmentCandidate
     let candidate = await AssessmentCandidate.findOne({ email: normalizedEmail });
     if (candidate) {
@@ -539,10 +585,30 @@ const registerCandidate = async (req, res, next) => {
       candidate.otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
       if (fullName) candidate.fullName = fullName.trim();
       if (mobileNumber) candidate.mobileNumber = mobileNumber.trim();
+      if (religion) candidate.religion = religion.trim();
+      if (department) candidate.department = department.trim();
+      if (driveLocation) candidate.driveLocation = driveLocation.trim();
+      if (req.file) {
+        candidate.cvUrl = `/uploads/documents/${req.file.filename}`;
+      }
       if (password && password.length >= 10) {
         const salt = await bcrypt.genSalt(10);
         candidate.password = await bcrypt.hash(password, salt);
       }
+
+      // Reset candidate assessment session for a fresh exam attempt
+      candidate.status = 'Pending';
+      candidate.isEmailVerified = false;
+      candidate.score = 0;
+      candidate.percentage = 0;
+      candidate.colorCategory = 'Pending';
+      candidate.tabSwitchCount = 0;
+      candidate.startedAt = null;
+      candidate.completedAt = null;
+      candidate.answers = new Map();
+      if (positionAppliedFor) candidate.positionAppliedFor = positionAppliedFor;
+      if (assessmentKey) candidate.assessmentKey = assessmentKey;
+
       await candidate.save();
       await syncCandidateToRecruitment(candidate);
 
@@ -552,7 +618,7 @@ const registerCandidate = async (req, res, next) => {
           to: normalizedEmail,
           subject: `Your Vahlay Assessment Verification Code: ${newOtp}`,
           text: `Dear ${candidate.fullName},\n\nYour 6-digit email verification code is: ${newOtp}\n\nCandidate ID: ${candidate.candidateCode}\nThis code is valid for 15 minutes. Enter this code on the assessment portal to confirm your email address.\n\nBest regards,\nVahlay Consulting Recruitment Team`,
-          html: getOtpEmailHtml(candidate.fullName, candidate.candidateCode, newOtp, candidate.driveLocation, candidate.positionAppliedFor),
+          html: getOtpEmailHtml(candidate.fullName, candidate.candidateCode, newOtp, candidate.driveLocation, candidate.positionAppliedFor, normalizedEmail),
         });
         emailSent = true;
       } catch (err) {
@@ -572,26 +638,8 @@ const registerCandidate = async (req, res, next) => {
           driveLocation: candidate.driveLocation,
           isEmailVerified: false,
           status: candidate.status,
-          devOtp: process.env.NODE_ENV !== 'production' ? newOtp : undefined,
         },
       });
-    }
-
-    // Determine assessmentKey from mapping
-    const mapping = assessmentData.assessmentForm?.step2_positionDetails?.positionToAssessmentKey || {};
-    let assessmentKey = mapping[positionAppliedFor] || positionAppliedFor;
-    if (!assessmentData.assessments[assessmentKey]) {
-      const matchedKey = Object.keys(POSITION_TITLES).find(
-        k => POSITION_TITLES[k].toLowerCase() === String(positionAppliedFor).trim().toLowerCase()
-      );
-      if (matchedKey) {
-        assessmentKey = mapping[matchedKey] || matchedKey;
-      }
-    }
-    const assessmentConfig = assessmentData.assessments[assessmentKey];
-
-    if (!assessmentConfig) {
-      return next(new AppError(`No assessment questionnaire found for role: ${positionAppliedFor}`, 400));
     }
 
     // Count total questions in this assessment as defined in JSON file
@@ -688,7 +736,7 @@ const registerCandidate = async (req, res, next) => {
         to: normalizedEmail,
         subject: `Your Vahlay Assessment Verification Code: ${verificationOtp}`,
         text: `Dear ${fullName},\n\nThank you for registering for the Vahlay Consulting recruitment drive (${driveLocation}).\n\nYour Candidate ID is: ${candidateCode}\nYour 6-digit email verification code is: ${verificationOtp}\n\nThis verification code is valid for 15 minutes. Enter this code on the assessment portal to confirm your email address.\n\nBest regards,\nVahlay Consulting Recruitment Team`,
-        html: getOtpEmailHtml(fullName, candidateCode, verificationOtp, driveLocation, positionAppliedFor),
+        html: getOtpEmailHtml(fullName, candidateCode, verificationOtp, driveLocation, positionAppliedFor, normalizedEmail),
       });
       emailSent = true;
     } catch (mailErr) {
@@ -708,7 +756,6 @@ const registerCandidate = async (req, res, next) => {
         driveLocation: candidate.driveLocation,
         isEmailVerified: false,
         status: candidate.status,
-        devOtp: process.env.NODE_ENV !== 'production' ? verificationOtp : undefined,
       },
     });
   } catch (err) {
@@ -730,8 +777,15 @@ const verifyEmail = async (req, res, next) => {
       return next(new AppError('Please provide the 6-digit verification code.', 400));
     }
 
-    const query = cleanCode ? { candidateCode: cleanCode } : { email: cleanEmail };
-    const candidate = await AssessmentCandidate.findOne(query);
+    const cleanOtp = String(otp).replace(/\D/g, '').trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      return next(new AppError('Please enter a valid 6-digit verification code.', 400));
+    }
+
+    const conditions = [];
+    if (cleanCode) conditions.push({ candidateCode: cleanCode });
+    if (cleanEmail) conditions.push({ email: cleanEmail });
+    const candidate = await AssessmentCandidate.findOne(conditions.length > 1 ? { $or: conditions } : conditions[0]);
     if (!candidate) {
       return next(new AppError('Candidate registration record not found. Please register first.', 404));
     }
@@ -751,7 +805,7 @@ const verifyEmail = async (req, res, next) => {
       });
     }
 
-    if (candidate.verificationOtp !== String(otp).trim()) {
+    if (candidate.verificationOtp !== cleanOtp) {
       return next(new AppError('Invalid verification code. Please check and try again.', 400));
     }
 
@@ -799,8 +853,10 @@ const resendVerificationOtp = async (req, res, next) => {
       return next(new AppError('Please provide your Candidate ID or registered email address to resend verification code.', 400));
     }
 
-    const query = cleanCode ? { candidateCode: cleanCode } : { email: cleanEmail };
-    const candidate = await AssessmentCandidate.findOne(query);
+    const conditions = [];
+    if (cleanCode) conditions.push({ candidateCode: cleanCode });
+    if (cleanEmail) conditions.push({ email: cleanEmail });
+    const candidate = await AssessmentCandidate.findOne(conditions.length > 1 ? { $or: conditions } : conditions[0]);
     if (!candidate) {
       return next(new AppError(`No candidate registration record found for ${cleanCode || cleanEmail}. Please complete registration first.`, 404));
     }
@@ -816,7 +872,7 @@ const resendVerificationOtp = async (req, res, next) => {
         to: candidate.email,
         subject: `Your Vahlay Assessment Verification Code: ${verificationOtp}`,
         text: `Dear ${candidate.fullName},\n\nYour new 6-digit email verification code is: ${verificationOtp}\n\nCandidate ID: ${candidate.candidateCode}\nThis verification code is valid for 15 minutes. Enter this code on the assessment portal to confirm your email address.\n\nBest regards,\nVahlay Consulting Recruitment Team`,
-        html: getOtpEmailHtml(candidate.fullName, candidate.candidateCode, verificationOtp, candidate.driveLocation, candidate.positionAppliedFor),
+        html: getOtpEmailHtml(candidate.fullName, candidate.candidateCode, verificationOtp, candidate.driveLocation, candidate.positionAppliedFor, candidate.email),
       });
       emailSent = true;
     } catch (mailErr) {
@@ -828,9 +884,6 @@ const resendVerificationOtp = async (req, res, next) => {
       message: emailSent
         ? 'A new verification code has been sent to your Gmail address.'
         : 'New verification code generated.',
-      data: {
-        devOtp: process.env.NODE_ENV !== 'production' ? verificationOtp : undefined,
-      },
     });
   } catch (err) {
     return next(err);
@@ -847,9 +900,19 @@ const loginCandidate = async (req, res, next) => {
       return next(new AppError('Please provide both your Gmail address and password.', 400));
     }
 
-    const candidate = await AssessmentCandidate.findOne({ email: String(email).trim().toLowerCase() });
+    const cleanIdentifier = String(email || '').trim();
+    const query = [
+      { email: cleanIdentifier.toLowerCase() },
+      { candidateCode: cleanIdentifier.toUpperCase() },
+    ];
+    const cleanDigits = cleanIdentifier.replace(/\D/g, '');
+    if (cleanDigits.length >= 7) {
+      query.push({ mobileNumber: new RegExp(cleanDigits + '$') });
+    }
+
+    const candidate = await AssessmentCandidate.findOne({ $or: query });
     if (!candidate) {
-      return next(new AppError('No candidate registration found with this email.', 404));
+      return next(new AppError('No candidate registration found with this email, ID, or phone number.', 404));
     }
 
     const isPasswordMatch = await bcrypt.compare(credential, candidate.password).catch(() => false);
@@ -946,10 +1009,17 @@ const startOrGetExam = async (req, res, next) => {
       return next(new AppError('Assessment questionnaire not configured.', 404));
     }
 
-    // If candidate status is Pending, move to Running and record startedAt
-    if (candidate.status === 'Pending') {
+    const allowRetake = req.query.retake === 'true' || req.query.reset === 'true';
+
+    // If candidate status is Pending, or retake requested, or fresh session needed
+    if (candidate.status === 'Pending' || allowRetake || !candidate.startedAt) {
       candidate.status = 'Running';
       candidate.startedAt = new Date();
+      candidate.completedAt = null;
+      candidate.score = 0;
+      candidate.percentage = 0;
+      candidate.tabSwitchCount = 0;
+      candidate.answers = new Map();
       await candidate.save();
     }
     await syncCandidateToRecruitment(candidate);
@@ -983,7 +1053,19 @@ const startOrGetExam = async (req, res, next) => {
     let remainingSeconds = totalDurationSeconds;
     if (candidate.startedAt) {
       const elapsedSeconds = Math.floor((Date.now() - new Date(candidate.startedAt).getTime()) / 1000);
-      remainingSeconds = Math.max(0, totalDurationSeconds - elapsedSeconds);
+      if (elapsedSeconds >= totalDurationSeconds) {
+        if (candidate.status !== 'Completed') {
+          // If expired without formal submission, restart timer so candidate is not locked out
+          candidate.startedAt = new Date();
+          candidate.tabSwitchCount = 0;
+          await candidate.save();
+          remainingSeconds = totalDurationSeconds;
+        } else {
+          remainingSeconds = 0;
+        }
+      } else {
+        remainingSeconds = Math.max(60, totalDurationSeconds - elapsedSeconds);
+      }
     }
 
     // Convert candidate answers map to plain object
@@ -1068,22 +1150,11 @@ const recordTabSwitch = async (req, res, next) => {
     }
 
     candidate.tabSwitchCount = (candidate.tabSwitchCount || 0) + 1;
-    let autoSubmitted = false;
     await candidate.save();
     await syncCandidateToRecruitment(candidate);
 
-    if (candidate.tabSwitchCount >= 3) {
-      autoSubmitted = true;
-      // Auto submit assessment
-      return await performSubmission(candidate, res, next);
-    }
-
-    await candidate.save();
-    return res.status(200).json({
-      success: true,
-      tabSwitchCount: candidate.tabSwitchCount,
-      autoSubmitted: false,
-    });
+    // Auto submit assessment immediately if user attempts to switch tab/window
+    return await performSubmission(candidate, res, next);
   } catch (err) {
     return next(err);
   }

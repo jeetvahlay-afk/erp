@@ -76,6 +76,8 @@ const sendSystemEmail = async ({ to, subject, text, html, accountId }) => {
   }
 };
 
+const { addEmailJob } = require('../queues/emailQueue');
+
 const sendNotificationEmails = async ({ recipients, title, message, link }) => {
   try {
     const ids = [...new Set((Array.isArray(recipients) ? recipients : [recipients]).filter(Boolean).map(String))];
@@ -84,12 +86,26 @@ const sendNotificationEmails = async ({ recipients, title, message, link }) => {
     const destination = link ? new URL(link, env.appBaseUrl).toString() : '';
     const suffix = destination ? `\n\nOpen TeamHub ERP to review: ${destination}` : '';
 
-    // Sequential delivery avoids unbounded SMTP connections during large workflows.
     for (const user of users.slice(0, 250)) {
-      try {
-        await sendSystemEmail({ to: user.email, subject: `[TeamHub ERP] ${title}`, text: `${message}${suffix}` });
-      } catch (error) {
-        logger.error('Notification email delivery failed', { recipientUserId: user._id, error: error.message });
+      if (!user.email) continue;
+      const emailPayload = {
+        to: user.email,
+        subject: `[TeamHub ERP] ${title}`,
+        text: `${message}${suffix}`,
+      };
+
+      // Enqueue to BullMQ worker queue with retry & concurrency control
+      const job = await addEmailJob('send-system-email', emailPayload, {
+        jobId: `notif-${user._id}-${Date.now()}`,
+      });
+
+      // If BullMQ is offline or returns null, deliver directly via fallback
+      if (!job) {
+        try {
+          await sendSystemEmail(emailPayload);
+        } catch (error) {
+          logger.error('Notification direct email delivery failed', { recipientUserId: user._id, error: error.message });
+        }
       }
     }
   } catch (error) {

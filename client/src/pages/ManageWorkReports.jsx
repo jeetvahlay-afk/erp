@@ -149,7 +149,7 @@ const ManageWorkReports = () => {
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder={tab === 'overview' ? 'Search employee or department...' : 'Search task or assignee...'}
+              placeholder={tab === 'overview' ? 'Search employee by name, ID, or department...' : 'Search task title, description, or assignee...'}
             />
             <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex items-center text-xs shrink-0">
               <button

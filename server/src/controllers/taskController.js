@@ -23,8 +23,12 @@ const listTasks = asyncHandler(async (req, res) => {
 const createTask = asyncHandler(async (req, res) => {
   const assignee = req.body.assignee || req.user._id;
   validators.objectId(assignee, 'assignee');
-  const exists = await User.exists({ _id: assignee, deletedAt: null, isActive: true });
-  validators.ensure(exists, 'Selected assignee is unavailable', 'assignee');
+  const userQuery = { _id: assignee, deletedAt: null, isActive: true };
+  if (req.user?.dataScope === 'department' && req.user.department) {
+    userQuery.department = req.user.department;
+  }
+  const exists = await User.exists(userQuery);
+  validators.ensure(exists, 'Selected assignee is unavailable or outside your department', 'assignee');
   const task = await Task.create({ title: validators.requiredString(req.body.title, 'title', { max: 180 }), description: validators.optionalString(req.body.description, 'description', { max: 3000 }) || '', assignee, assignedBy: req.user._id, priority: req.body.priority ? validators.enumValue(req.body.priority, ['low', 'medium', 'high'], 'priority') : 'medium', dueDate: req.body.dueDate ? new Date(req.body.dueDate) : null });
   res.status(201).json(await Task.findById(task._id).populate('assignee assignedBy', 'name employeeId profileImage'));
 });

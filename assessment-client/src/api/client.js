@@ -18,28 +18,22 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Unpack nested API envelopes safely (e.g., { success: true, data: { success: true, data: { ... } } })
-const unwrapNestedEnvelopeData = (value) => {
-  let current = value;
-  const visited = new Set();
-  while (
-    current &&
-    typeof current === 'object' &&
-    !visited.has(current) &&
-    typeof current.success === 'boolean' &&
-    Object.prototype.hasOwnProperty.call(current, 'data')
-  ) {
-    visited.add(current);
-    current = current.data;
-  }
-  return current;
-};
-
-// Response interceptor to ensure responses are cleanly unwrapped
+// Response interceptor to ensure double-nested envelopes are unwrapped once,
+// while preserving top-level { success, message, data } intact for callers.
 apiClient.interceptors.response.use(
   (response) => {
-    if (response && response.data !== undefined) {
-      response.data = unwrapNestedEnvelopeData(response.data);
+    if (response?.data && typeof response.data === 'object') {
+      const payload = response.data;
+      // If double nested: { success: true, data: { success: true, data: ... } }
+      if (
+        payload.success !== undefined &&
+        payload.data &&
+        typeof payload.data === 'object' &&
+        payload.data.success !== undefined &&
+        Object.prototype.hasOwnProperty.call(payload.data, 'data')
+      ) {
+        response.data = payload.data;
+      }
     }
     return response;
   },

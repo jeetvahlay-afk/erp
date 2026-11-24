@@ -290,7 +290,7 @@ const TasksPage = ({ view = 'my' }) => {
             </label>
             <input
               type="text"
-              placeholder="e.g. Prepare monthly salary disbursement"
+              placeholder="Enter task title"
               className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-blue-500"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -303,7 +303,7 @@ const TasksPage = ({ view = 'my' }) => {
             </label>
             <textarea
               rows={3}
-              placeholder="Add key deliverables, links, or instructions..."
+              placeholder="Enter task description or key deliverables..."
               className="w-full bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs text-slate-900 focus:outline-none focus:border-blue-500 font-normal"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}

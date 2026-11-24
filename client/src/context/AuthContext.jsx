@@ -77,6 +77,26 @@ export const AuthProvider = ({ children }) => {
 
   const punch = useCallback(async (action, extraData = {}) => {
     const { data } = await api.post('/api/attendance/punch', { action, ...extraData });
+    if (data?.record) {
+      const rec = data.record;
+      const isShiftCompleted = Boolean(rec.loginTime && rec.logoutTime);
+      const isPunchedIn = Boolean(rec.loginTime && !rec.logoutTime);
+      setAttendanceStatus((prev) => ({
+        ...prev,
+        hasRecord: true,
+        isPunchedIn,
+        isShiftCompleted,
+        isLatePending: !rec.loginTime && !isShiftCompleted && prev.isLatePending,
+        loginTime: rec.loginTime || null,
+        logoutTime: rec.logoutTime || null,
+        status: rec.status || prev.status,
+        isLateCheckIn: Boolean(rec.isLateCheckIn),
+        lateReason: rec.lateReason || null,
+        isLatePenalty: Boolean(rec.isLatePenalty),
+        penaltyDeductionHours: rec.penaltyDeductionHours || 0,
+        lateCountInMonth: rec.lateCountInMonth || 0,
+      }));
+    }
     await fetchAttendanceStatus();
     return data;
   }, [fetchAttendanceStatus]);
